@@ -1092,8 +1092,9 @@ Disposition: ${extractedData.disposition}`
               )}
               
               <div>
-                <label className="block text-sm font-medium mb-1">Template</label>
+                <label htmlFor="template-select" className="block text-sm font-medium mb-1">Template</label>
                 <select
+                  id="template-select"
                   value={selectedTemplate}
                   onChange={(e) => setSelectedTemplate(e.target.value)}
                   className="input-field text-sm"

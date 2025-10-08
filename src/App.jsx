@@ -1,10 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { 
-  FileText, Download, Copy, AlertCircle, CheckCircle, 
-  Upload, Trash2, Wand2, RefreshCw, Edit, Settings,
-  Save, Eye, EyeOff, Printer, Moon, Sun, Clock,
-  Activity, ClipboardList, Database, Shield
-} from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Moon, Sun } from 'lucide-react';
 import DischargeSummaryGenerator from './components/DischargeSummaryGenerator';
 import './index.css';
 
