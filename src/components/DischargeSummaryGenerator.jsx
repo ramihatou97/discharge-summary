@@ -261,11 +261,27 @@ const DischargeSummaryGenerator = () => {
       followUp: []
     };
 
-    // Extract diagnoses
-    const admitDxMatch = admissionNote.match(/(?:Chief Complaint|CC|Presenting Problem|Reason for Admission|Admitting Diagnosis)\s*:?\s*([^\n]+)/i);
+    // Extract diagnoses - search across all note types for better detection
+    const allNotes = admissionNote + '\n' + progressNotes + '\n' + finalNote;
+    
+    // Try admitting diagnosis first in admission note
+    let admitDxMatch = admissionNote.match(/(?:Chief Complaint|CC|Presenting Problem|Reason for Admission|Admitting Diagnosis)\s*:?\s*([^\n]+)/i);
+    // Fallback to generic "Diagnosis:" in admission note
+    if (!admitDxMatch) {
+      admitDxMatch = admissionNote.match(/^Diagnosis\s*:?\s*([^\n]+)/im);
+    }
     if (admitDxMatch) extracted.admittingDiagnosis = admitDxMatch[1].trim();
 
-    const dischargeDxMatch = finalNote.match(/(?:Discharge Diagnosis|Final Diagnosis|Primary Diagnosis)\s*:?\s*([^\n]+)/i);
+    // Try discharge diagnosis in final note first
+    let dischargeDxMatch = finalNote.match(/(?:Discharge Diagnosis|Final Diagnosis|Primary Diagnosis)\s*:?\s*([^\n]+)/i);
+    // Fallback to searching all notes for discharge/final diagnosis
+    if (!dischargeDxMatch) {
+      dischargeDxMatch = allNotes.match(/(?:Discharge Diagnosis|Final Diagnosis|Primary Diagnosis)\s*:?\s*([^\n]+)/i);
+    }
+    // Fallback to generic "Diagnosis:" if still not found
+    if (!dischargeDxMatch) {
+      dischargeDxMatch = allNotes.match(/^Diagnosis\s*:?\s*([^\n]+)/im);
+    }
     if (dischargeDxMatch) extracted.dischargeDiagnosis = dischargeDxMatch[1].trim();
 
     // Extract HPI
@@ -300,6 +316,15 @@ const DischargeSummaryGenerator = () => {
       const courseMatches = progressNotes.match(/(?:POD|Post-op day|Hospital Day|HD)\s*#?\d+[^\n]*\n([\s\S]{50,500}?)(?=\n(?:POD|Post-op|Hospital Day|HD)|$)/gi);
       if (courseMatches) {
         extracted.hospitalCourse = courseMatches.join('\n\n');
+      }
+    }
+    
+    // Try to extract hospital course from explicit "Hospital Course:" header if not found yet
+    if (!extracted.hospitalCourse) {
+      const allNotes = admissionNote + '\n' + progressNotes + '\n' + finalNote;
+      const hospitalCourseMatch = allNotes.match(/(?:Hospital Course|Clinical Course|Course)\s*:?\s*([\s\S]{30,1000}?)(?=\n\n(?:[A-Z][a-z]+\s*:)|Discharge|Physical Exam|Medications|Disposition|$)/i);
+      if (hospitalCourseMatch) {
+        extracted.hospitalCourse = hospitalCourseMatch[1].trim();
       }
     }
 
