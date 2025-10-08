@@ -7,7 +7,7 @@
   "author": "ramihatou97",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ramihatou97/my-discharge-summary-app"
+    "url": "https://github.com/ramihatou97/discharge-summary"
   },
   "dependencies": {
     "date-fns": "^2.30.0",
@@ -41,5 +41,5 @@
     "vite": "^7.1.9",
     "vitest": "^3.2.4"
   },
-  "homepage": "https://ramihatou97.github.io/my-discharge-summary-app"
+  "homepage": "https://ramihatou97.github.io/discharge-summary"
 }
