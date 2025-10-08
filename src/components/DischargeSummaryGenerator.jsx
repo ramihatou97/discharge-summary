@@ -112,6 +112,15 @@ const DischargeSummaryGenerator = () => {
     // Split by common delimiters
     const sections = text.split(/(?:\n={3,}|\n-{3,}|\n\*{3,}|\n#{2,})/);
     
+    // If there's only 1 section (no delimiters), treat the entire text as all types
+    // This allows pattern extraction to work across the unified note
+    if (sections.length === 1 && sections[0].trim().length > 100) {
+      detected.admission = text;
+      detected.progress = text;
+      detected.final = text;
+      return detected;
+    }
+    
     sections.forEach(section => {
       const lowerSection = section.toLowerCase();
       const trimmedSection = section.trim();
@@ -141,15 +150,12 @@ const DischargeSummaryGenerator = () => {
                lowerSection.match(/(?:cardiology|neurology|medicine|icu|surgery)\s+note/i)) {
         detected.consultant += trimmedSection + '\n\n';
       }
-      // Procedure Note Detection
+      // Procedure Note Detection (check for explicit procedure note headers first)
       else if (lowerSection.includes('operative note') || 
                lowerSection.includes('procedure note') ||
                lowerSection.includes('operation performed') ||
-               lowerSection.includes('craniotomy') ||
-               lowerSection.includes('laminectomy') ||
-               lowerSection.includes('discectomy') ||
-               lowerSection.includes('fusion') ||
-               lowerSection.match(/(?:indication|procedure|findings|complications):/gi)) {
+               lowerSection.includes('operative report') ||
+               lowerSection.includes('op note')) {
         detected.procedure += trimmedSection + '\n\n';
       }
       // Discharge/Final Note Detection
@@ -174,8 +180,8 @@ const DischargeSummaryGenerator = () => {
   }, []);
 
   // Pattern-based extraction (updated to use detected notes)
-  const extractWithPatterns = useCallback(() => {
-    const notes = detectedNotes;
+  const extractWithPatterns = useCallback((notesToUse = null) => {
+    const notes = notesToUse || detectedNotes;
     const admissionNote = notes.admission || '';
     const progressNotes = notes.progress || '';
     const finalNote = notes.final || '';
@@ -618,11 +624,11 @@ Return the structured data in the same JSON format with improved organization an
           setSuccess('Multi-AI extraction completed successfully');
         } catch (aiError) {
           console.warn('AI extraction failed, falling back to patterns:', aiError);
-          extracted = extractWithPatterns();
+          extracted = extractWithPatterns(detected);
           setWarnings(['AI extraction failed, used pattern matching instead']);
         }
       } else {
-        extracted = extractWithPatterns();
+        extracted = extractWithPatterns(detected);
         setSuccess('Pattern extraction completed');
       }
 
