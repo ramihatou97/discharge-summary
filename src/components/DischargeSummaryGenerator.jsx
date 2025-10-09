@@ -191,23 +191,40 @@ const DischargeSummaryGenerator = () => {
     
     // Medical condition patterns (common diagnoses)
     const conditionPatterns = [
-      // Neurological
-      /\b(stroke|CVA|cerebrovascular accident|TIA|transient ischemic attack)\b/gi,
-      /\b(hemorrhage|bleeding|hematoma|ICH|SDH|EDH|SAH|IPH)\b/gi,
-      /\b(aneurysm|AVM|arteriovenous malformation)\b/gi,
-      /\b(seizure|epilepsy|convulsion)\b/gi,
-      /\b(tumor|neoplasm|glioma|meningioma|metastasis|mass)\b/gi,
-      /\b(hydrocephalus|increased ICP|intracranial pressure)\b/gi,
-      /\b(spinal stenosis|herniated disc|radiculopathy|myelopathy)\b/gi,
-      /\b(traumatic brain injury|TBI|head trauma|concussion)\b/gi,
+      // Neurosurgical hemorrhage/bleeding conditions
+      /\b(bleed|bleeding|hemorrhage|hematoma|ICH|intracranial hemorrhage|SDH|subdural hematoma|EDH|epidural hematoma|SAH|subarachnoid hemorrhage|IPH|intraparenchymal hemorrhage|IVH|intraventricular hemorrhage)\b/gi,
+      
+      // Neurosurgical tumor/mass conditions
+      /\b(tumor|neoplasm|glioma|glioblastoma|GBM|astrocytoma|oligodendroglioma|meningioma|schwannoma|acoustic neuroma|pituitary adenoma|craniopharyngioma|metastasis|metastatic|brain mass|spinal tumor)\b/gi,
+      
+      // Neurosurgical spine conditions
+      /\b(spinal stenosis|herniated disc|disc herniation|radiculopathy|radicular pain|myelopathy|spondylolisthesis|spondylosis|degenerative disc disease|spinal fracture|vertebral fracture|spinal cord injury|SCI)\b/gi,
+      
+      // Neurosurgical vascular conditions
+      /\b(aneurysm|AVM|arteriovenous malformation|cavernous malformation|cavernoma|dural arteriovenous fistula|dural AVF|vasospasm|moyamoya)\b/gi,
+      
+      // Neurosurgical infection/inflammatory
+      /\b(infection|abscess|brain abscess|spinal abscess|epidural abscess|meningitis|encephalitis|osteomyelitis|discitis|empyema|subdural empyema)\b/gi,
+      
+      // Neurosurgical CSF/hydrocephalus conditions
+      /\b(CSF leak|cerebrospinal fluid leak|CSF rhinorrhea|CSF otorrhea|hydrocephalus|NPH|normal pressure hydrocephalus|obstructive hydrocephalus|communicating hydrocephalus|pseudotumor cerebri|IIH|idiopathic intracranial hypertension|increased ICP|intracranial pressure)\b/gi,
+      
+      // Neurosurgical seizure/epilepsy
+      /\b(seizure|seizures|epilepsy|status epilepticus|convulsion|convulsions|post-traumatic epilepsy)\b/gi,
+      
+      // Other neurosurgical conditions
+      /\b(stroke|CVA|cerebrovascular accident|TIA|transient ischemic attack|ischemic stroke|hemorrhagic stroke)\b/gi,
+      /\b(traumatic brain injury|TBI|head trauma|head injury|concussion|contusion|diffuse axonal injury|DAI)\b/gi,
+      /\b(Chiari malformation|syringomyelia|tethered cord|spinal dysraphism)\b/gi,
+      
       // General medical conditions
       /\b(hypertension|HTN|high blood pressure)\b/gi,
       /\b(diabetes|DM|diabetic)\b/gi,
-      /\b(infection|sepsis|pneumonia|UTI)\b/gi,
+      /\b(pneumonia|UTI|urinary tract infection|sepsis)\b/gi,
       /\b(MI|myocardial infarction|heart attack|CHF|heart failure)\b/gi,
-      /\b(COPD|asthma|respiratory)\b/gi,
-      /\b(renal failure|kidney disease|CKD)\b/gi,
-      /\b(fracture|broken bone)\b/gi
+      /\b(COPD|asthma|respiratory failure)\b/gi,
+      /\b(renal failure|kidney disease|CKD|acute kidney injury|AKI)\b/gi,
+      /\b(DVT|deep vein thrombosis|PE|pulmonary embolism)\b/gi
     ];
     
     // Surgical procedure patterns
@@ -386,6 +403,11 @@ const DischargeSummaryGenerator = () => {
       dischargeExam: '',
       neurologicalExam: '',
       vitalSigns: '',
+      
+      // Functional Status Assessment
+      kps: '', // Karnofsky Performance Status
+      dischargeConditionScore: '', // Discharge Condition Score
+      functionalStatus: '', // Overall functional assessment
       
       // Medications
       dischargeMedications: [],
@@ -615,6 +637,92 @@ const DischargeSummaryGenerator = () => {
       extracted.neurologicalExam = neuroExamMatch[1].trim();
     }
 
+    // Extract explicit KPS or functional status if documented
+    const kpsMatch = allNotes.match(/(?:KPS|Karnofsky Performance Status|Karnofsky)\s*:?\s*(\d{1,3})/i);
+    if (kpsMatch) {
+      extracted.kps = kpsMatch[1];
+    }
+
+    // Estimate functional status from physical exam and clinical data
+    const estimateFunctionalStatus = () => {
+      const examText = (extracted.neurologicalExam + ' ' + extracted.dischargeExam + ' ' + extracted.currentExam + ' ' + allNotes).toLowerCase();
+      
+      let kpsScore = 0;
+      let functionalDescription = '';
+      
+      // Assess based on activity level and independence
+      if (examText.includes('independent') || examText.includes('ambulat') && examText.includes('independent')) {
+        if (examText.includes('normal') || examText.includes('no deficits') || examText.includes('intact')) {
+          kpsScore = 90; // Able to carry on normal activity
+          functionalDescription = 'Independent with normal activity; no or minor signs/symptoms of disease';
+        } else {
+          kpsScore = 80; // Normal activity with effort
+          functionalDescription = 'Independent with activities of daily living; some signs/symptoms of disease';
+        }
+      } else if (examText.includes('minimal assistance') || examText.includes('contact guard')) {
+        kpsScore = 70; // Cares for self but unable to carry on normal activity
+        functionalDescription = 'Cares for self; unable to carry on normal activity or work; minimal assistance required';
+      } else if (examText.includes('moderate assistance') || examText.includes('assist') && !examText.includes('independent')) {
+        kpsScore = 60; // Requires occasional assistance
+        functionalDescription = 'Requires occasional assistance but able to care for most needs; moderate assistance required';
+      } else if (examText.includes('maximal assistance') || examText.includes('dependent')) {
+        kpsScore = 50; // Requires considerable assistance
+        functionalDescription = 'Requires considerable assistance and frequent care; considerable/maximal assistance required';
+      } else if (examText.includes('total care') || examText.includes('unable to care')) {
+        kpsScore = 40; // Disabled, requires special care
+        functionalDescription = 'Disabled; requires special care and assistance; total care required';
+      }
+      
+      // Adjust based on specific functional indicators
+      if (examText.includes('bedridden') || examText.includes('bed-bound')) {
+        kpsScore = Math.min(kpsScore, 30);
+        functionalDescription = 'Severely disabled; hospitalization/skilled care indicated; bedridden';
+      } else if (examText.includes('wheelchair')) {
+        kpsScore = Math.max(40, Math.min(kpsScore, 60));
+      }
+      
+      // Check for very good function
+      if (examText.includes('fully functional') || examText.includes('no limitations')) {
+        kpsScore = 100;
+        functionalDescription = 'Normal; no complaints; no evidence of disease';
+      }
+      
+      // Adjust based on motor strength
+      if (examText.match(/motor.*5\/5|strength.*5\/5|full strength/i)) {
+        kpsScore = Math.max(kpsScore, 80);
+      } else if (examText.match(/motor.*[3-4]\/5|strength.*[3-4]\/5/i)) {
+        kpsScore = Math.max(40, Math.min(kpsScore, 70));
+      } else if (examText.match(/motor.*[1-2]\/5|strength.*[1-2]\/5/i)) {
+        kpsScore = Math.min(kpsScore, 50);
+      }
+      
+      // Assess discharge condition score (1-5 scale)
+      let dcsScore = '';
+      if (kpsScore >= 80) {
+        dcsScore = '5 - Excellent'; // Good functional status, independent
+      } else if (kpsScore >= 70) {
+        dcsScore = '4 - Good'; // Mild functional impairment
+      } else if (kpsScore >= 50) {
+        dcsScore = '3 - Fair'; // Moderate functional impairment
+      } else if (kpsScore >= 30) {
+        dcsScore = '2 - Poor'; // Significant functional impairment
+      } else if (kpsScore > 0) {
+        dcsScore = '1 - Critical'; // Severe functional impairment
+      }
+      
+      return { kpsScore, functionalDescription, dcsScore };
+    };
+    
+    // Apply functional status estimation if not explicitly documented
+    if (!extracted.kps && (extracted.neurologicalExam || extracted.dischargeExam || extracted.currentExam)) {
+      const functional = estimateFunctionalStatus();
+      if (functional.kpsScore > 0) {
+        extracted.kps = functional.kpsScore.toString();
+        extracted.functionalStatus = functional.functionalDescription;
+        extracted.dischargeConditionScore = functional.dcsScore;
+      }
+    }
+
     return extracted;
   }, [detectedNotes, analyzeTextSemantically]);
 
@@ -643,9 +751,16 @@ Extract the following information from these clinical notes and return as JSON:
 - pmh (array), psh (array)
 - disposition, diet, activity
 - followUp (array)
+- kps (Karnofsky Performance Status score if mentioned)
+- functionalStatus (overall functional assessment)
 
 Focus on: reason for admission, signs/symptoms, imaging findings, surgical treatments, post-operative progress, 
 symptom changes (new/worsening/improving), major events, consultant plans.
+
+For neurosurgery cases, pay special attention to: hemorrhage/bleed, tumor, infection, abscess, CSF leak, 
+hydrocephalus, radicular pain, myelopathy, fracture, seizures.
+
+Estimate functional status from physical exam findings (independence, mobility, motor strength).
 
 ADMISSION NOTE:
 ${notes.admission}
@@ -1081,6 +1196,12 @@ ${extractedData.neurologicalExam || '[Mental status, cranial nerves, motor, sens
 General Examination:
 ${extractedData.dischargeExam || extractedData.currentExam || '[Complete physical exam findings]'}
 
+FUNCTIONAL STATUS ASSESSMENT
+${extractedData.kps ? `Karnofsky Performance Status (KPS): ${extractedData.kps}` : ''}
+${extractedData.dischargeConditionScore ? `Discharge Condition Score: ${extractedData.dischargeConditionScore}` : ''}
+${extractedData.functionalStatus ? `Functional Assessment: ${extractedData.functionalStatus}` : ''}
+${!extractedData.kps && !extractedData.dischargeConditionScore && !extractedData.functionalStatus ? '[Functional status assessment based on physical exam and clinical course]' : ''}
+
 PAST MEDICAL HISTORY
 ${formatList(extractedData.pmh)}
 
@@ -1197,6 +1318,26 @@ General Physical Examination:
 • Abdomen: Soft, non-tender, non-distended
 • Extremities: No edema
 • Skin/Wound: [Surgical incision clean, dry, intact]`}
+
+FUNCTIONAL STATUS AT DISCHARGE
+${extractedData.kps ? `Karnofsky Performance Status (KPS): ${extractedData.kps}` : ''}
+${extractedData.dischargeConditionScore ? `Discharge Condition Score: ${extractedData.dischargeConditionScore}` : ''}
+${extractedData.functionalStatus ? `
+Functional Assessment: ${extractedData.functionalStatus}` : ''}
+${!extractedData.kps && !extractedData.dischargeConditionScore && !extractedData.functionalStatus ? `
+KPS Score: [To be assessed based on functional capabilities]
+- 100: Normal, no complaints, no evidence of disease
+- 90: Able to carry on normal activity, minor signs/symptoms
+- 80: Normal activity with effort, some signs/symptoms
+- 70: Cares for self, unable to carry on normal activity
+- 60: Requires occasional assistance
+- 50: Requires considerable assistance and frequent care
+- 40: Disabled, requires special care
+- 30: Severely disabled, hospitalization indicated
+- 20: Very sick, active supportive treatment necessary
+- 10: Moribund, fatal processes progressing rapidly
+
+Discharge Condition Score: [1-Critical, 2-Poor, 3-Fair, 4-Good, 5-Excellent]` : ''}
 
 DISCHARGE PLAN
 
