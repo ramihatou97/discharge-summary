@@ -7,6 +7,7 @@ An educational tool for learning neurosurgical documentation automation, with AI
 **Comprehensive documentation available in the `/docs` folder:**
 
 - 📖 **[Quick Reference Guide](docs/QUICK_REFERENCE.md)** - Start here! Simple explanation of how everything works
+- 🎓 **[Training Examples Guide](docs/TRAINING_EXAMPLES_GUIDE.md)** - Learn how to teach the system with real examples (NEW!)
 - 🔧 **[Technical Documentation](docs/TECHNICAL_DOCUMENTATION.md)** - Deep dive into algorithms, architecture, and implementation
 - 🔍 **[Critical Appraisal](docs/CRITICAL_APPRAISAL.md)** - Honest assessment of strengths, weaknesses, and limitations
 - 🚀 **[Enhancement Recommendations](docs/ENHANCEMENT_RECOMMENDATIONS.md)** - Prioritized roadmap for improvements
@@ -32,6 +33,7 @@ An educational tool for learning neurosurgical documentation automation, with AI
 - **Smart Note Detection**: Automatically identifies admission, progress, consultant, procedure, and discharge notes
 - **Multi-AI Extraction**: Support for Gemini, OpenAI, and Claude APIs with intelligent fallback
 - **ML Learning**: Learns from user edits to improve future summaries (without storing patient data)
+- **Training Examples Library**: Continuously feed completed discharge summaries to teach the system (NEW!)
 - **Pattern-Based Extraction**: Works offline without any API keys
 - **500+ Medical Abbreviations**: Neurosurgery-specialized terminology database
 - **Evidence-Based Guidelines**: Integrated clinical guidelines and recommendations
@@ -42,6 +44,7 @@ An educational tool for learning neurosurgical documentation automation, with AI
 - **Multiple Templates**: Standard, detailed, and brief formats
 - **Confidence Scores**: Shows extraction confidence for each field
 - **Editable Output**: Review and modify all extracted data before generating summary
+- **Import/Export**: Share training examples and backup your learning data
 
 ## 🚀 Quick Start
 
