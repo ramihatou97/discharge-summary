@@ -563,7 +563,7 @@ const DischargeSummaryGenerator = () => {
             const hasMinLength = proc.length >= 15;
             const notJustAbbrev = !proc.match(/^[\(\)\s\w]{1,5}$/);
             const notCommonWords = !proc.match(/^(progress|notes?|s|LRB|RRB|\(s\)|\([A-Z]+\)|assessment|plan|in bed|received|see below|as follows)$/i);
-            const hasMultipleWords = proc.replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w.length > 2).length >= 2;
+            const hasMultipleWords = /\b\w{3,}\b.*\b\w{3,}\b/.test(proc);
             const hasMedicalTerm = proc.match(/\b(craniotomy|craniectomy|laminectomy|discectomy|fusion|biopsy|resection|excision|removal|drainage|evacuation|decompression|clipping|coiling|shunt|evd|minicraniotomy|duraplasty)\b/i);
             
             return hasMinLength && notJustAbbrev && notCommonWords && hasMultipleWords && hasMedicalTerm;
