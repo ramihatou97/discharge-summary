@@ -316,12 +316,12 @@ const DischargeSummaryGenerator = () => {
       for (const match of matches) {
         // Get surrounding context to find complete procedure description
         const index = match.index;
-        const before = text.substring(Math.max(0, index - 50), index);
-        const after = text.substring(index, Math.min(text.length, index + 200));
-        
+        // Extract a window around the match (50 chars before, 200 after)
+        const windowStart = Math.max(0, index - 50);
+        const windowEnd = Math.min(text.length, index + (match[0]?.length || 0) + 200);
+        const contextWindow = text.substring(windowStart, windowEnd);
         // Look for complete procedure phrases like "left craniotomy", "L4-L5 laminectomy", etc.
-        const contextMatch = (before + after).match(/\b([A-Z]?\d?[-\s]?[A-Z]?\d?\s+)?(\w+\s+)?(craniotomy|craniectomy|clipping|coiling|evacuation|drainage|laminectomy|discectomy|fusion|decompression|shunt|EVD|biopsy|resection|excision|removal|embolization)(\s+\w+)?/i);
-        
+        const contextMatch = contextWindow.match(/\b([A-Z]?\d?[-\s]?[A-Z]?\d?\s+)?(\w+\s+)?(craniotomy|craniectomy|clipping|coiling|evacuation|drainage|laminectomy|discectomy|fusion|decompression|shunt|EVD|biopsy|resection|excision|removal|embolization)(\s+\w+)?/i);
         if (contextMatch) {
           const procedure = contextMatch[0].trim();
           const normalizedProc = procedure.trim().toLowerCase();
