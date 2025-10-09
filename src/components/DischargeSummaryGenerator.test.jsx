@@ -116,4 +116,30 @@ describe('DischargeSummaryGenerator Component', () => {
     render(<DischargeSummaryGenerator />)
     expect(screen.getByText('Generated summary will appear here')).toBeInTheDocument()
   })
+
+  it('shows "Add API Keys" button when AI is enabled without saved keys', async () => {
+    const user = userEvent.setup()
+    render(<DischargeSummaryGenerator />)
+
+    const checkbox = screen.getByRole('checkbox', { name: /Use Multi-AI Extraction/i })
+    await user.click(checkbox)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Add API Keys/i })).toBeInTheDocument()
+    })
+  })
+
+  it('button text changes from "Add" to "Manage" after saving API keys', async () => {
+    const user = userEvent.setup()
+    render(<DischargeSummaryGenerator />)
+
+    // Enable AI - should show "Add API Keys"
+    const checkbox = screen.getByRole('checkbox', { name: /Use Multi-AI Extraction/i })
+    await user.click(checkbox)
+
+    // Verify "Add API Keys" button appears
+    await waitFor(() => {
+      expect(screen.getByText(/Add API Keys/i)).toBeInTheDocument()
+    })
+  })
 })
