@@ -173,12 +173,62 @@ const TrainingExamplesManager = ({ onPatternsUpdated }) => {
     setTrainingExamples(updated);
     localStorage.setItem('trainingExamples', JSON.stringify(updated));
 
-    // Analyze and update patterns
-    const patterns = analyzeAllExamples();
-    localStorage.setItem('globalLearningPatterns', JSON.stringify(patterns));
+    // Analyze and update patterns using the updated state directly
+    const globalPatterns = {
+      commonStructure: {},
+      preferredTerminology: {},
+      pathologySpecificPatterns: {},
+      formattingPreferences: {},
+      totalExamples: updated.length
+    };
+
+    updated.forEach(example => {
+      const patterns = extractPatternsFromExample(example);
+
+      // Aggregate structure patterns
+      patterns.structure.forEach(section => {
+        globalPatterns.commonStructure[section] = 
+          (globalPatterns.commonStructure[section] || 0) + 1;
+      });
+
+      // Aggregate terminology
+      patterns.terminology.forEach(({ term, frequency }) => {
+        if (!globalPatterns.preferredTerminology[term]) {
+          globalPatterns.preferredTerminology[term] = { count: 0, totalFreq: 0 };
+        }
+        globalPatterns.preferredTerminology[term].count += 1;
+        globalPatterns.preferredTerminology[term].totalFreq += frequency;
+      });
+
+      // Aggregate clinical patterns by pathology
+      patterns.clinical.forEach(clinical => {
+        const pathology = clinical.pathology.toLowerCase();
+        if (!globalPatterns.pathologySpecificPatterns[pathology]) {
+          globalPatterns.pathologySpecificPatterns[pathology] = {
+            count: 0,
+            avgSummaryLength: 0,
+            consultantRate: 0,
+            procedureRate: 0
+          };
+        }
+        const p = globalPatterns.pathologySpecificPatterns[pathology];
+        p.count += 1;
+        p.avgSummaryLength = ((p.avgSummaryLength * (p.count - 1)) + clinical.summaryLength) / p.count;
+        p.consultantRate = ((p.consultantRate * (p.count - 1)) + (clinical.hasConsultant ? 1 : 0)) / p.count;
+        p.procedureRate = ((p.procedureRate * (p.count - 1)) + (clinical.hasProcedure ? 1 : 0)) / p.count;
+      });
+
+      // Aggregate formatting
+      patterns.formatting.forEach(format => {
+        globalPatterns.formattingPreferences[format] = 
+          (globalPatterns.formattingPreferences[format] || 0) + 1;
+      });
+    });
+
+    localStorage.setItem('globalLearningPatterns', JSON.stringify(globalPatterns));
     
     if (onPatternsUpdated) {
-      onPatternsUpdated(patterns);
+      onPatternsUpdated(globalPatterns);
     }
 
     setSuccess(`Training example added! Total examples: ${updated.length}`);
@@ -196,7 +246,7 @@ const TrainingExamplesManager = ({ onPatternsUpdated }) => {
       notes: ''
     });
     setShowAddForm(false);
-  }, [newExample, trainingExamples, analyzeAllExamples, onPatternsUpdated]);
+  }, [newExample, trainingExamples, extractPatternsFromExample, onPatternsUpdated]);
 
   // Delete training example
   const deleteExample = useCallback((id) => {
@@ -204,17 +254,67 @@ const TrainingExamplesManager = ({ onPatternsUpdated }) => {
     setTrainingExamples(updated);
     localStorage.setItem('trainingExamples', JSON.stringify(updated));
 
-    // Re-analyze patterns
-    const patterns = analyzeAllExamples();
-    localStorage.setItem('globalLearningPatterns', JSON.stringify(patterns));
+    // Re-analyze patterns using the updated state directly
+    const globalPatterns = {
+      commonStructure: {},
+      preferredTerminology: {},
+      pathologySpecificPatterns: {},
+      formattingPreferences: {},
+      totalExamples: updated.length
+    };
+
+    updated.forEach(example => {
+      const patterns = extractPatternsFromExample(example);
+
+      // Aggregate structure patterns
+      patterns.structure.forEach(section => {
+        globalPatterns.commonStructure[section] = 
+          (globalPatterns.commonStructure[section] || 0) + 1;
+      });
+
+      // Aggregate terminology
+      patterns.terminology.forEach(({ term, frequency }) => {
+        if (!globalPatterns.preferredTerminology[term]) {
+          globalPatterns.preferredTerminology[term] = { count: 0, totalFreq: 0 };
+        }
+        globalPatterns.preferredTerminology[term].count += 1;
+        globalPatterns.preferredTerminology[term].totalFreq += frequency;
+      });
+
+      // Aggregate clinical patterns by pathology
+      patterns.clinical.forEach(clinical => {
+        const pathology = clinical.pathology.toLowerCase();
+        if (!globalPatterns.pathologySpecificPatterns[pathology]) {
+          globalPatterns.pathologySpecificPatterns[pathology] = {
+            count: 0,
+            avgSummaryLength: 0,
+            consultantRate: 0,
+            procedureRate: 0
+          };
+        }
+        const p = globalPatterns.pathologySpecificPatterns[pathology];
+        p.count += 1;
+        p.avgSummaryLength = ((p.avgSummaryLength * (p.count - 1)) + clinical.summaryLength) / p.count;
+        p.consultantRate = ((p.consultantRate * (p.count - 1)) + (clinical.hasConsultant ? 1 : 0)) / p.count;
+        p.procedureRate = ((p.procedureRate * (p.count - 1)) + (clinical.hasProcedure ? 1 : 0)) / p.count;
+      });
+
+      // Aggregate formatting
+      patterns.formatting.forEach(format => {
+        globalPatterns.formattingPreferences[format] = 
+          (globalPatterns.formattingPreferences[format] || 0) + 1;
+      });
+    });
+
+    localStorage.setItem('globalLearningPatterns', JSON.stringify(globalPatterns));
     
     if (onPatternsUpdated) {
-      onPatternsUpdated(patterns);
+      onPatternsUpdated(globalPatterns);
     }
 
     setSuccess('Example deleted and patterns updated');
     setTimeout(() => setSuccess(''), 3000);
-  }, [trainingExamples, analyzeAllExamples, onPatternsUpdated]);
+  }, [trainingExamples, extractPatternsFromExample, onPatternsUpdated]);
 
   // Export examples
   const exportExamples = useCallback(() => {
@@ -246,12 +346,62 @@ const TrainingExamplesManager = ({ onPatternsUpdated }) => {
         setTrainingExamples(updated);
         localStorage.setItem('trainingExamples', JSON.stringify(updated));
 
-        // Re-analyze patterns
-        const patterns = analyzeAllExamples();
-        localStorage.setItem('globalLearningPatterns', JSON.stringify(patterns));
+        // Re-analyze patterns using the updated state directly
+        const globalPatterns = {
+          commonStructure: {},
+          preferredTerminology: {},
+          pathologySpecificPatterns: {},
+          formattingPreferences: {},
+          totalExamples: updated.length
+        };
+
+        updated.forEach(example => {
+          const patterns = extractPatternsFromExample(example);
+
+          // Aggregate structure patterns
+          patterns.structure.forEach(section => {
+            globalPatterns.commonStructure[section] = 
+              (globalPatterns.commonStructure[section] || 0) + 1;
+          });
+
+          // Aggregate terminology
+          patterns.terminology.forEach(({ term, frequency }) => {
+            if (!globalPatterns.preferredTerminology[term]) {
+              globalPatterns.preferredTerminology[term] = { count: 0, totalFreq: 0 };
+            }
+            globalPatterns.preferredTerminology[term].count += 1;
+            globalPatterns.preferredTerminology[term].totalFreq += frequency;
+          });
+
+          // Aggregate clinical patterns by pathology
+          patterns.clinical.forEach(clinical => {
+            const pathology = clinical.pathology.toLowerCase();
+            if (!globalPatterns.pathologySpecificPatterns[pathology]) {
+              globalPatterns.pathologySpecificPatterns[pathology] = {
+                count: 0,
+                avgSummaryLength: 0,
+                consultantRate: 0,
+                procedureRate: 0
+              };
+            }
+            const p = globalPatterns.pathologySpecificPatterns[pathology];
+            p.count += 1;
+            p.avgSummaryLength = ((p.avgSummaryLength * (p.count - 1)) + clinical.summaryLength) / p.count;
+            p.consultantRate = ((p.consultantRate * (p.count - 1)) + (clinical.hasConsultant ? 1 : 0)) / p.count;
+            p.procedureRate = ((p.procedureRate * (p.count - 1)) + (clinical.hasProcedure ? 1 : 0)) / p.count;
+          });
+
+          // Aggregate formatting
+          patterns.formatting.forEach(format => {
+            globalPatterns.formattingPreferences[format] = 
+              (globalPatterns.formattingPreferences[format] || 0) + 1;
+          });
+        });
+
+        localStorage.setItem('globalLearningPatterns', JSON.stringify(globalPatterns));
         
         if (onPatternsUpdated) {
-          onPatternsUpdated(patterns);
+          onPatternsUpdated(globalPatterns);
         }
 
         setSuccess(`Imported ${imported.length} examples`);
@@ -261,7 +411,7 @@ const TrainingExamplesManager = ({ onPatternsUpdated }) => {
       }
     };
     reader.readAsText(file);
-  }, [trainingExamples, analyzeAllExamples, onPatternsUpdated]);
+  }, [trainingExamples, extractPatternsFromExample, onPatternsUpdated]);
 
   // Get patterns summary
   const getPatternsSummary = useCallback(() => {
