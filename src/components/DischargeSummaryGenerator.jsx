@@ -112,6 +112,15 @@ const DischargeSummaryGenerator = () => {
     // Split by common delimiters
     const sections = text.split(/(?:\n={3,}|\n-{3,}|\n\*{3,}|\n#{2,})/);
     
+    // If there's only 1 section (no delimiters), treat the entire text as all types
+    // This allows pattern extraction to work across the unified note
+    if (sections.length === 1 && sections[0].trim().length > 100) {
+      detected.admission = text;
+      detected.progress = text;
+      detected.final = text;
+      return detected;
+    }
+    
     sections.forEach(section => {
       const lowerSection = section.toLowerCase();
       const trimmedSection = section.trim();
@@ -141,15 +150,12 @@ const DischargeSummaryGenerator = () => {
                lowerSection.match(/(?:cardiology|neurology|medicine|icu|surgery)\s+note/i)) {
         detected.consultant += trimmedSection + '\n\n';
       }
-      // Procedure Note Detection
+      // Procedure Note Detection (check for explicit procedure note headers first)
       else if (lowerSection.includes('operative note') || 
                lowerSection.includes('procedure note') ||
                lowerSection.includes('operation performed') ||
-               lowerSection.includes('craniotomy') ||
-               lowerSection.includes('laminectomy') ||
-               lowerSection.includes('discectomy') ||
-               lowerSection.includes('fusion') ||
-               lowerSection.match(/(?:indication|procedure|findings|complications):/gi)) {
+               lowerSection.includes('operative report') ||
+               lowerSection.includes('op note')) {
         detected.procedure += trimmedSection + '\n\n';
       }
       // Discharge/Final Note Detection
@@ -173,13 +179,142 @@ const DischargeSummaryGenerator = () => {
     return detected;
   }, []);
 
+  // Semantic analysis helper - analyzes text word-by-word to infer medical information
+  const analyzeTextSemantically = useCallback((text) => {
+    const result = {
+      diagnoses: [],
+      procedures: [],
+      medications: [],
+      hospitalCourseEvents: [],
+      clinicalFindings: []
+    };
+    
+    // Medical condition patterns (common diagnoses)
+    const conditionPatterns = [
+      // Neurological
+      /\b(stroke|CVA|cerebrovascular accident|TIA|transient ischemic attack)\b/gi,
+      /\b(hemorrhage|bleeding|hematoma|ICH|SDH|EDH|SAH|IPH)\b/gi,
+      /\b(aneurysm|AVM|arteriovenous malformation)\b/gi,
+      /\b(seizure|epilepsy|convulsion)\b/gi,
+      /\b(tumor|neoplasm|glioma|meningioma|metastasis|mass)\b/gi,
+      /\b(hydrocephalus|increased ICP|intracranial pressure)\b/gi,
+      /\b(spinal stenosis|herniated disc|radiculopathy|myelopathy)\b/gi,
+      /\b(traumatic brain injury|TBI|head trauma|concussion)\b/gi,
+      // General medical conditions
+      /\b(hypertension|HTN|high blood pressure)\b/gi,
+      /\b(diabetes|DM|diabetic)\b/gi,
+      /\b(infection|sepsis|pneumonia|UTI)\b/gi,
+      /\b(MI|myocardial infarction|heart attack|CHF|heart failure)\b/gi,
+      /\b(COPD|asthma|respiratory)\b/gi,
+      /\b(renal failure|kidney disease|CKD)\b/gi,
+      /\b(fracture|broken bone)\b/gi
+    ];
+    
+    // Surgical procedure patterns
+    const procedurePatterns = [
+      /\b(craniotomy|craniectomy)\b/gi,
+      /\b(clipping|coiling)\b/gi,
+      /\b(evacuation|drainage)\b/gi,
+      /\b(laminectomy|discectomy|fusion|decompression)\b/gi,
+      /\b(shunt|EVD|external ventricular drain|ventriculostomy)\b/gi,
+      /\b(biopsy|resection|excision|removal)\b/gi,
+      /\b(embolization|angioplasty)\b/gi
+    ];
+    
+    // Medication patterns (name + dose + frequency)
+    const medicationPatterns = [
+      /\b([A-Z][a-z]+(?:cillin|mycin|oxacin|tidine|prazole|olol|pril|sartan|statin))\s+(\d+\.?\d*)\s*(mg|mcg|g|units?)(?:\s+(daily|BID|TID|QID|q\d+h|PRN))?/gi,
+      /\b(aspirin|acetaminophen|ibuprofen|morphine|fentanyl|hydrocodone|oxycodone)\s+(\d+\.?\d*)\s*(mg|mcg)(?:\s+(daily|BID|TID|QID|q\d+h|PRN))?/gi,
+      /\b(levetiracetam|keppra|phenytoin|dilantin|carbamazepine|valproic acid)\s+(\d+\.?\d*)\s*(mg|mcg)(?:\s+(daily|BID|TID|QID|q\d+h|PRN))?/gi,
+      /\b(nimodipine|labetalol|metoprolol|lisinopril|amlodipine)\s+(\d+\.?\d*)\s*(mg|mcg)(?:\s+(daily|BID|TID|QID|q\d+h|PRN))?/gi
+    ];
+    
+    // Clinical event/temporal markers for hospital course
+    const hospitalCourseMarkers = [
+      /\b(underwent|had|received|completed|tolerated|developed|experienced)\s+([^.]+)/gi,
+      /\b(post[-\s]?op(?:erative)?|after surgery|following procedure)\s+([^.]+)/gi,
+      /\b(improved|worsened|stabilized|recovered|progressed)\b/gi,
+      /\b(transferred to|admitted to|discharged to)\s+([^.]+)/gi,
+      /\b(day \d+|POD \d+|hospital day \d+|HD \d+)\s*:?\s*([^.]+)/gi
+    ];
+    
+    // Extract diagnoses from context
+    conditionPatterns.forEach(pattern => {
+      const matches = text.matchAll(pattern);
+      for (const match of matches) {
+        const diagnosis = match[1] || match[0];
+        // Get surrounding context (20 words before and after)
+        const index = match.index;
+        const before = text.substring(Math.max(0, index - 100), index);
+        const after = text.substring(index, Math.min(text.length, index + 100));
+        const context = before + match[0] + after;
+        
+        // Only add if not already in list (avoid duplicates)
+        const normalizedDx = diagnosis.trim().toLowerCase();
+        if (!result.diagnoses.some(d => d.condition.toLowerCase() === normalizedDx)) {
+          result.diagnoses.push({
+            condition: diagnosis.trim(),
+            context: context.trim()
+          });
+        }
+      }
+    });
+    
+    // Extract procedures from context
+    procedurePatterns.forEach(pattern => {
+      const matches = text.matchAll(pattern);
+      for (const match of matches) {
+        const procedure = match[1] || match[0];
+        const normalizedProc = procedure.trim().toLowerCase();
+        // Only add if not already in list
+        if (!result.procedures.some(p => p.toLowerCase() === normalizedProc)) {
+          result.procedures.push(procedure.trim());
+        }
+      }
+    });
+    
+    // Extract medications with doses
+    medicationPatterns.forEach(pattern => {
+      const matches = text.matchAll(pattern);
+      for (const match of matches) {
+        if (match[1] && match[2]) {
+          const medication = `${match[1]} ${match[2]}${match[3] || ''}${match[4] ? ' ' + match[4] : ''}`;
+          const normalizedMed = medication.trim().toLowerCase();
+          // Only add if not already in list
+          if (!result.medications.some(m => m.toLowerCase() === normalizedMed)) {
+            result.medications.push(medication.trim());
+          }
+        }
+      }
+    });
+    
+    // Extract hospital course events
+    hospitalCourseMarkers.forEach(pattern => {
+      const matches = text.matchAll(pattern);
+      for (const match of matches) {
+        const event = match[0];
+        const normalizedEvent = event.trim().toLowerCase();
+        // Only add if not already in list
+        if (!result.hospitalCourseEvents.some(e => e.toLowerCase() === normalizedEvent)) {
+          result.hospitalCourseEvents.push(event.trim());
+        }
+      }
+    });
+    
+    return result;
+  }, []);
+
   // Pattern-based extraction (updated to use detected notes)
-  const extractWithPatterns = useCallback(() => {
-    const notes = detectedNotes;
+  const extractWithPatterns = useCallback((notesToUse = null) => {
+    const notes = notesToUse || detectedNotes;
     const admissionNote = notes.admission || '';
     const progressNotes = notes.progress || '';
     const finalNote = notes.final || '';
     const procedureNote = notes.procedure || '';
+    
+    // Perform semantic analysis on all notes
+    const allText = admissionNote + ' ' + progressNotes + ' ' + finalNote + ' ' + procedureNote;
+    const semanticAnalysis = analyzeTextSemantically(allText);
     
     const patterns = {
       // Demographics patterns
@@ -261,12 +396,44 @@ const DischargeSummaryGenerator = () => {
       followUp: []
     };
 
-    // Extract diagnoses
-    const admitDxMatch = admissionNote.match(/(?:Chief Complaint|CC|Presenting Problem|Reason for Admission|Admitting Diagnosis)\s*:?\s*([^\n]+)/i);
-    if (admitDxMatch) extracted.admittingDiagnosis = admitDxMatch[1].trim();
+    // Extract diagnoses - search across all note types for better detection
+    const allNotes = admissionNote + '\n' + progressNotes + '\n' + finalNote;
+    
+    // Try admitting diagnosis first in admission note
+    let admitDxMatch = admissionNote.match(/(?:Chief Complaint|CC|Presenting Problem|Reason for Admission|Admitting Diagnosis)\s*:?\s*([^\n]+)/i);
+    // Fallback to generic "Diagnosis:" in admission note
+    if (!admitDxMatch) {
+      admitDxMatch = admissionNote.match(/^Diagnosis\s*:?\s*([^\n]+)/im);
+    }
+    // If still not found, use semantic analysis to infer from medical conditions
+    if (!admitDxMatch && semanticAnalysis.diagnoses.length > 0) {
+      // Use the first identified condition as admitting diagnosis
+      extracted.admittingDiagnosis = semanticAnalysis.diagnoses[0].condition;
+    } else if (admitDxMatch) {
+      extracted.admittingDiagnosis = admitDxMatch[1].trim();
+    }
 
-    const dischargeDxMatch = finalNote.match(/(?:Discharge Diagnosis|Final Diagnosis|Primary Diagnosis)\s*:?\s*([^\n]+)/i);
-    if (dischargeDxMatch) extracted.dischargeDiagnosis = dischargeDxMatch[1].trim();
+    // Try discharge diagnosis in final note first
+    let dischargeDxMatch = finalNote.match(/(?:Discharge Diagnosis|Final Diagnosis|Primary Diagnosis)\s*:?\s*([^\n]+)/i);
+    // Fallback to searching all notes for discharge/final diagnosis
+    if (!dischargeDxMatch) {
+      dischargeDxMatch = allNotes.match(/(?:Discharge Diagnosis|Final Diagnosis|Primary Diagnosis)\s*:?\s*([^\n]+)/i);
+    }
+    // Fallback to generic "Diagnosis:" if still not found
+    if (!dischargeDxMatch) {
+      dischargeDxMatch = allNotes.match(/^Diagnosis\s*:?\s*([^\n]+)/im);
+    }
+    // Use semantic analysis if no header found
+    if (!dischargeDxMatch && semanticAnalysis.diagnoses.length > 0) {
+      // Combine multiple diagnoses if found, prioritizing those in final/discharge context
+      const diagnosesText = semanticAnalysis.diagnoses
+        .slice(0, 3) // Take up to 3 diagnoses
+        .map(d => d.condition)
+        .join(', ');
+      extracted.dischargeDiagnosis = diagnosesText;
+    } else if (dischargeDxMatch) {
+      extracted.dischargeDiagnosis = dischargeDxMatch[1].trim();
+    }
 
     // Extract HPI
     const hpiMatch = admissionNote.match(/(?:HPI|History of Present Illness|History|Present Illness)\s*:?\s*([\s\S]{50,500}?)(?=\n\n|\n[A-Z]|PMH|Past Medical|$)/i);
@@ -302,6 +469,28 @@ const DischargeSummaryGenerator = () => {
         extracted.hospitalCourse = courseMatches.join('\n\n');
       }
     }
+    
+    // Use semantic analysis for procedures if none found
+    if (extracted.procedures.length === 0 && semanticAnalysis.procedures.length > 0) {
+      extracted.procedures = semanticAnalysis.procedures;
+    }
+    
+    // Try to extract hospital course from explicit "Hospital Course:" header if not found yet
+    if (!extracted.hospitalCourse) {
+      const allNotes = admissionNote + '\n' + progressNotes + '\n' + finalNote;
+      const hospitalCourseMatch = allNotes.match(/(?:Hospital Course|Clinical Course|Course)\s*:?\s*([\s\S]{30,1000}?)(?=\n\n(?:[A-Z][a-z]+\s*:)|Discharge|Physical Exam|Medications|Disposition|$)/i);
+      if (hospitalCourseMatch) {
+        extracted.hospitalCourse = hospitalCourseMatch[1].trim();
+      }
+    }
+    
+    // Use semantic analysis to build hospital course from events if still not found
+    if (!extracted.hospitalCourse && semanticAnalysis.hospitalCourseEvents.length > 0) {
+      // Construct a narrative from the clinical events
+      extracted.hospitalCourse = semanticAnalysis.hospitalCourseEvents
+        .slice(0, 10) // Limit to 10 events
+        .join('. ') + '.';
+    }
 
     // Extract current exam from final note
     const examMatch = finalNote.match(/(?:Physical Exam|PE|Examination|Exam)\s*:?\s*([\s\S]{30,400}?)(?=\n\n|\n[A-Z]|Labs|Medications|$)/i);
@@ -319,6 +508,11 @@ const DischargeSummaryGenerator = () => {
         .filter(med => med.trim() && /\d/.test(med))
         .map(med => med.trim());
     }
+    
+    // Use semantic analysis for medications if none found
+    if (extracted.dischargeMedications.length === 0 && semanticAnalysis.medications.length > 0) {
+      extracted.dischargeMedications = semanticAnalysis.medications;
+    }
 
     // Extract disposition
     const dispositionMatch = finalNote.match(/(?:Disposition|Discharge to|Going to)\s*:?\s*([^\n]+)/i);
@@ -334,7 +528,7 @@ const DischargeSummaryGenerator = () => {
     }
 
     return extracted;
-  }, [detectedNotes]);
+  }, [detectedNotes, analyzeTextSemantically]);
 
   // Multi-AI Extraction Functions
   
@@ -593,11 +787,11 @@ Return the structured data in the same JSON format with improved organization an
           setSuccess('Multi-AI extraction completed successfully');
         } catch (aiError) {
           console.warn('AI extraction failed, falling back to patterns:', aiError);
-          extracted = extractWithPatterns();
+          extracted = extractWithPatterns(detected);
           setWarnings(['AI extraction failed, used pattern matching instead']);
         }
       } else {
-        extracted = extractWithPatterns();
+        extracted = extractWithPatterns(detected);
         setSuccess('Pattern extraction completed');
       }
 
