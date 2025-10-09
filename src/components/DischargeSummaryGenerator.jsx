@@ -310,15 +310,27 @@ const DischargeSummaryGenerator = () => {
       }
     });
     
-    // Extract procedures from context
+    // Extract procedures from context - improved to capture full procedure descriptions
     procedurePatterns.forEach(pattern => {
       const matches = text.matchAll(pattern);
       for (const match of matches) {
-        const procedure = match[1] || match[0];
-        const normalizedProc = procedure.trim().toLowerCase();
-        // Only add if not already in list
-        if (!result.procedures.some(p => p.toLowerCase() === normalizedProc)) {
-          result.procedures.push(procedure.trim());
+        // Get surrounding context to find complete procedure description
+        const index = match.index;
+        // Extract a window around the match (50 chars before, 200 after)
+        const windowStart = Math.max(0, index - 50);
+        const windowEnd = Math.min(text.length, index + (match[0]?.length || 0) + 200);
+        const contextWindow = text.substring(windowStart, windowEnd);
+        // Look for complete procedure phrases like "left craniotomy", "L4-L5 laminectomy", etc.
+        const contextMatch = contextWindow.match(/\b([A-Z]?\d?[-\s]?[A-Z]?\d?\s+)?(\w+\s+)?(craniotomy|craniectomy|clipping|coiling|evacuation|drainage|laminectomy|discectomy|fusion|decompression|shunt|EVD|biopsy|resection|excision|removal|embolization)(\s+\w+)?/i);
+        if (contextMatch) {
+          const procedure = contextMatch[0].trim();
+          const normalizedProc = procedure.trim().toLowerCase();
+          // Only add if it's a reasonable length and not already in list
+          if (procedure.length >= 5 && 
+              !result.procedures.some(p => p.toLowerCase() === normalizedProc) &&
+              !procedure.match(/^(progress|notes?|assessment|plan|s|the|and|or|for)$/i)) {
+            result.procedures.push(procedure.trim());
+          }
         }
       }
     });
@@ -460,11 +472,26 @@ const DischargeSummaryGenerator = () => {
     // Extract diagnoses - search across all note types for better detection
     const allNotes = admissionNote + '\n' + progressNotes + '\n' + finalNote;
     
-    // Try admitting diagnosis first in admission note
-    let admitDxMatch = admissionNote.match(/(?:Chief Complaint|CC|Presenting Problem|Reason for Admission|Admitting Diagnosis)\s*:?\s*([^\n]+)/i);
+    // Try admitting diagnosis first in admission note - improved to avoid capturing long paragraphs
+    // Look for diagnosis on its own line, limiting to reasonable diagnosis length (max 200 chars)
+    let admitDxMatch = admissionNote.match(/(?:Admitting Diagnosis|Primary Diagnosis)\s*:?\s*([^\n]{1,200}?)(?=\n|$)/i);
+    // Try other headers but be more restrictive
+    if (!admitDxMatch) {
+      admitDxMatch = admissionNote.match(/(?:Chief Complaint|CC|Presenting Problem)\s*:?\s*([^\n]{1,150}?)(?=\n|$)/i);
+      // Validate that it looks like a diagnosis, not a long narrative
+      if (admitDxMatch && admitDxMatch[1]) {
+        const captured = admitDxMatch[1].trim();
+        // Reject if it looks like narrative text (e.g., has "he/she", "patient", long sentences)
+        if (captured.match(/\b(he|she|patient|denies|reports|states|presents with|led to|his|her)\b/i) || 
+            captured.length > 100 || 
+            captured.split(/[.!?]/).length > 2) {
+          admitDxMatch = null; // Invalid, looks like narrative
+        }
+      }
+    }
     // Fallback to generic "Diagnosis:" in admission note
     if (!admitDxMatch) {
-      admitDxMatch = admissionNote.match(/^Diagnosis\s*:?\s*([^\n]+)/im);
+      admitDxMatch = admissionNote.match(/^Diagnosis\s*:?\s*([^\n]{1,150}?)(?=\n|$)/im);
     }
     // If still not found, use semantic analysis to infer from medical conditions
     if (!admitDxMatch && semanticAnalysis.diagnoses.length > 0) {
@@ -514,14 +541,33 @@ const DischargeSummaryGenerator = () => {
       extracted.allergies = allergyMatch[1].trim();
     }
 
-    // Extract procedures from procedure note or progress notes - improved
+    // Extract procedures from procedure note or progress notes - improved with validation
     const procedureText = procedureNote || progressNotes;
     if (procedureText) {
-      const procMatches = procedureText.match(/(?:Procedure|Operation|Surgery|Operative Procedure)\s*:?\s*([^\n]+)/gi);
-      if (procMatches) {
-        extracted.procedures = procMatches.map(match => 
-          match.replace(/(?:Procedure|Operation|Surgery|Operative Procedure)\s*:?\s*/i, '').trim()
-        );
+      // First, try to match procedures that are on the same line as the header
+      let procMatches = procedureText.match(/(?:Procedure|Operation|Surgery|Operative Procedure)(?!\(s\)\s*\([A-Z]+\)\s*:)\s*:?\s*([^\n]{15,})/gi);
+      
+      // If that didn't work well, also look for procedure descriptions on the line AFTER a header
+      const procHeaderMatches = procedureText.matchAll(/(?:Post-?Op(?:erative)?\s+)?(?:Procedure|Operation|Surgery)\s*(?:\(s\))?\s*(?:\([A-Z]+\))?\s*:\s*\n([^\n]{15,})/gi);
+      const nextLineProcs = Array.from(procHeaderMatches).map(m => m[1]);
+      
+      // Combine both approaches
+      const allProcMatches = [...(procMatches || []), ...nextLineProcs.map(p => `Procedure: ${p}`)];
+      
+      if (allProcMatches.length > 0) {
+        extracted.procedures = allProcMatches
+          .map(match => match.replace(/(?:Post-?Op(?:erative)?\s+)?(?:Procedure|Operation|Surgery|Operative Procedure)\s*(?:\(s\))?\s*(?:\([A-Z]+\))?\s*:?\s*/i, '').trim())
+          .filter(proc => {
+            // Validate procedures - must be meaningful medical procedure descriptions
+            // Reject if: too short, just abbreviations, or common non-procedure words
+            const hasMinLength = proc.length >= 15;
+            const notJustAbbrev = !proc.match(/^[\(\)\s\w]{1,5}$/);
+            const notCommonWords = !proc.match(/^(progress|notes?|s|LRB|RRB|\(s\)|\([A-Z]+\)|assessment|plan|in bed|received|see below|as follows)$/i);
+            const hasMultipleWords = /\b\w{3,}\b.*\b\w{3,}\b/.test(proc);
+            const hasMedicalTerm = proc.match(/\b(craniotomy|craniectomy|laminectomy|discectomy|fusion|biopsy|resection|excision|removal|drainage|evacuation|decompression|clipping|coiling|shunt|evd|minicraniotomy|duraplasty)\b/i);
+            
+            return hasMinLength && notJustAbbrev && notCommonWords && hasMultipleWords && hasMedicalTerm;
+          });
       }
 
       // Build hospital course from progress notes
@@ -531,9 +577,17 @@ const DischargeSummaryGenerator = () => {
       }
     }
     
-    // Use semantic analysis for procedures if none found
+    // Use semantic analysis for procedures if none found, but with better validation
     if (extracted.procedures.length === 0 && semanticAnalysis.procedures.length > 0) {
-      extracted.procedures = semanticAnalysis.procedures;
+      // Filter semantic procedures to ensure they are complete and meaningful
+      const validSemanticProcedures = semanticAnalysis.procedures.filter(proc => {
+        return proc.length >= 5 && 
+               !proc.match(/^(progress|notes?|s|assessment|plan)$/i);
+      });
+      
+      if (validSemanticProcedures.length > 0) {
+        extracted.procedures = validSemanticProcedures;
+      }
     }
     
     // Try to extract hospital course from explicit "Hospital Course:" header if not found yet
