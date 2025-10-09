@@ -119,12 +119,38 @@ const DischargeSummaryGenerator = () => {
     // Split by common delimiters
     const sections = text.split(/(?:\n={3,}|\n-{3,}|\n\*{3,}|\n#{2,})/);
     
-    // If there's only 1 section (no delimiters), treat the entire text as all types
-    // This allows pattern extraction to work across the unified note
+    // If there's only 1 section (no delimiters), try to intelligently segment based on content
+    // This prevents copying entire text to multiple note types
     if (sections.length === 1 && sections[0].trim().length > 100) {
-      detected.admission = text;
-      detected.progress = text;
-      detected.final = text;
+      // Split by paragraphs and classify each
+      const paragraphs = text.split(/\n\s*\n/);
+      
+      paragraphs.forEach(para => {
+        const lowerPara = para.toLowerCase();
+        if (!para.trim()) return;
+        
+        // Classify each paragraph by content
+        if (lowerPara.match(/admission|chief complaint|history of present|hpi|pmh|past medical/i)) {
+          detected.admission += para + '\n\n';
+        } else if (lowerPara.match(/post[- ]?op|pod|hospital day|progress|daily|soap/i)) {
+          detected.progress += para + '\n\n';
+        } else if (lowerPara.match(/consult|pt eval|ot eval|therapy|recommend/i)) {
+          detected.consultant += para + '\n\n';
+        } else if (lowerPara.match(/operative|procedure|operation|surgery performed/i)) {
+          detected.procedure += para + '\n\n';
+        } else if (lowerPara.match(/discharge|disposition|follow.?up|discharge meds/i)) {
+          detected.final += para + '\n\n';
+        } else {
+          // Default: add to progress (most common for unified notes)
+          detected.progress += para + '\n\n';
+        }
+      });
+      
+      // If still nothing classified, put everything in progress as it's likely a mixed note
+      if (!Object.values(detected).some(v => v.trim())) {
+        detected.progress = text;
+      }
+      
       return detected;
     }
     
@@ -470,12 +496,12 @@ const DischargeSummaryGenerator = () => {
       extracted.dischargeDiagnosis = dischargeDxMatch[1].trim();
     }
 
-    // Extract HPI
-    const hpiMatch = admissionNote.match(/(?:HPI|History of Present Illness|History|Present Illness)\s*:?\s*([\s\S]{50,500}?)(?=\n\n|\n[A-Z]|PMH|Past Medical|$)/i);
+    // Extract HPI - improved to avoid truncation
+    const hpiMatch = admissionNote.match(/(?:HPI|History of Present Illness|History|Present Illness|Chief Complaint|CC)\s*:?\s*([\s\S]{50,800}?)(?=\n\n+|\n(?:PMH|Past Medical|PSH|Past Surgical|Medications|Allergies|Physical Exam|PE|Assessment|Plan)\s*:|$)/i);
     if (hpiMatch) extracted.historyPresenting = hpiMatch[1].trim();
 
-    // Extract PMH
-    const pmhMatch = admissionNote.match(/(?:PMH|Past Medical History|Medical History)\s*:?\s*([\s\S]{20,300}?)(?=\n\n|\n[A-Z]|PSH|Medications|$)/i);
+    // Extract PMH - improved to capture full content
+    const pmhMatch = admissionNote.match(/(?:PMH|Past Medical History|Medical History)\s*:?\s*([\s\S]{20,500}?)(?=\n\n+|\n(?:PSH|Past Surgical|Medications|Allergies|Social History|Family History)\s*:|$)/i);
     if (pmhMatch) {
       extracted.pmh = pmhMatch[1].split(/[,\n]/)
         .filter(item => item.trim())
@@ -488,13 +514,13 @@ const DischargeSummaryGenerator = () => {
       extracted.allergies = allergyMatch[1].trim();
     }
 
-    // Extract procedures from procedure note or progress notes
+    // Extract procedures from procedure note or progress notes - improved
     const procedureText = procedureNote || progressNotes;
     if (procedureText) {
-      const procMatches = procedureText.match(/(?:Procedure|Operation|Surgery)\s*:?\s*([^\n]+)/gi);
+      const procMatches = procedureText.match(/(?:Procedure|Operation|Surgery|Operative Procedure)\s*:?\s*([^\n]+)/gi);
       if (procMatches) {
         extracted.procedures = procMatches.map(match => 
-          match.replace(/(?:Procedure|Operation|Surgery)\s*:?\s*/i, '').trim()
+          match.replace(/(?:Procedure|Operation|Surgery|Operative Procedure)\s*:?\s*/i, '').trim()
         );
       }
 
@@ -587,7 +613,7 @@ const DischargeSummaryGenerator = () => {
       }
     }
 
-    // Extract consultant recommendations
+    // Extract consultant recommendations (including PT/OT)
     const consultantNote = notes.consultant || '';
     const consultMatch = consultantNote.match(/(?:Recommendations?|Plan|Suggest|Advise)\s*:?\s*([\s\S]{30,500}?)(?=\n\n|\n(?:Signed|Attending)|$)/i);
     if (consultMatch) {
@@ -596,10 +622,21 @@ const DischargeSummaryGenerator = () => {
         .filter(item => item.trim() && item.length > 5)
         .map(item => item.trim());
     } else {
-      // Look for consultant opinions in progress notes
-      const consultRefs = allNotes.match(/(?:Consult(?:ant)?|Specialist|(?:Cardiology|Neurology|PT|OT|Rehab|Pain))\s+(?:recommend|suggest|advise|state)[sd]?\s*:?\s*([^\n]{20,200})/gi);
+      // Look for consultant opinions in progress notes (more comprehensive)
+      const consultRefs = allNotes.match(/(?:Consult(?:ant|ation)?|Specialist|Physical Therapy|PT eval(?:uation)?|Occupational Therapy|OT eval(?:uation)?|Cardiology|Neurology|Rehab|Pain|Speech)\s+(?:recommend(?:s|ed)?|suggest(?:s|ed)?|advise(?:s|d)?|state(?:s|d)?|note(?:s|d)?|eval(?:uated|uation)?)\s*:?\s*([^\n]{20,300})/gi);
       if (consultRefs) {
         extracted.consultantRecommendations = consultRefs.map(match => match.trim());
+      }
+      
+      // Also look for PT/OT notes with different patterns
+      const ptOtNotes = allNotes.match(/(?:PT|OT|Physical Therapy|Occupational Therapy)\s*(?:Notes?|Evaluation|Assessment|Recommendations?)\s*:?\s*([\s\S]{30,300}?)(?=\n\n|\n[A-Z][a-z]+\s*:|$)/gi);
+      if (ptOtNotes) {
+        ptOtNotes.forEach(note => {
+          const trimmed = note.trim();
+          if (!extracted.consultantRecommendations.some(rec => rec.toLowerCase().includes(trimmed.toLowerCase().substring(0, 20)))) {
+            extracted.consultantRecommendations.push(trimmed);
+          }
+        });
       }
     }
 
@@ -1044,13 +1081,22 @@ Return the structured data in the same JSON format with improved organization an
       patterns.push({ type: 'reduction', context: 'content_simplification' });
     }
     
+    // Check for section reordering
+    const originalSections = originalText.split(/\n[A-Z][A-Z\s]+\n/);
+    const editedSections = editedText.split(/\n[A-Z][A-Z\s]+\n/);
+    if (originalSections.length !== editedSections.length) {
+      patterns.push({ type: 'structure', context: 'section_reorganization' });
+    }
+    
     // Check for common medical phrase changes
     const medicalPhrases = {
       'patient': ['pt', 'individual', 'case'],
       'underwent': ['had', 'received', 'completed'],
       'discharge': ['released', 'sent home', 'transferred'],
       'stable': ['improving', 'well', 'good condition'],
-      'tolerated': ['did well with', 'handled', 'managed']
+      'tolerated': ['did well with', 'handled', 'managed'],
+      'procedure': ['surgery', 'operation', 'intervention'],
+      'examination': ['exam', 'assessment', 'evaluation']
     };
     
     for (const [formal, informal] of Object.entries(medicalPhrases)) {
@@ -1060,6 +1106,7 @@ Return the structured data in the same JSON format with improved organization an
         patterns.push({ 
           type: 'terminology_preference', 
           from: formal, 
+          to: informal.find(alt => editedText.toLowerCase().includes(alt)),
           context: 'formality_adjustment' 
         });
       }
@@ -1068,6 +1115,25 @@ Return the structured data in the same JSON format with improved organization an
     // Check for structure changes
     if ((originalText.match(/\n/g) || []).length < (editedText.match(/\n/g) || []).length) {
       patterns.push({ type: 'formatting', context: 'improved_readability' });
+    }
+    
+    // Check for section title changes
+    const sectionTitles = [
+      'INITIAL PRESENTATION', 'TREATMENT', 'EVOLUTION', 'FUNCTIONAL STATUS',
+      'REHABILITATION', 'CONSULTANT', 'DISCHARGE STATUS', 'HOSPITAL COURSE'
+    ];
+    sectionTitles.forEach(title => {
+      if (!originalText.includes(title) && editedText.includes(title)) {
+        patterns.push({ type: 'section_added', context: title });
+      }
+    });
+    
+    // Detect content organization preferences
+    if (editedText.includes('Initial Imaging') && !originalText.includes('Initial Imaging')) {
+      patterns.push({ type: 'organization', context: 'imaging_separated' });
+    }
+    if (editedText.includes('Pre-Operative') && !originalText.includes('Pre-Operative')) {
+      patterns.push({ type: 'organization', context: 'pre_post_op_distinction' });
     }
     
     return patterns;
@@ -1119,10 +1185,10 @@ Return the structured data in the same JSON format with improved organization an
     // Apply the most common learned patterns from edits
     const sortedPatterns = Object.entries(learningData.patterns)
       .sort((a, b) => b[1] - a[1]) // Sort by frequency
-      .slice(0, 5); // Top 5 patterns
+      .slice(0, 10); // Top 10 patterns
     
     sortedPatterns.forEach(([patternKey, count]) => {
-      if (count >= 3) { // Only apply if seen 3+ times
+      if (count >= 2) { // Only apply if seen 2+ times (reduced threshold for better learning)
         const [type, context] = patternKey.split('_');
         
         if (type === 'formatting' && context === 'improved') {
@@ -1130,9 +1196,30 @@ Return the structured data in the same JSON format with improved organization an
           enhanced = enhanced.replace(/\n([A-Z])/g, '\n\n$1');
         }
         
-        if (type === 'terminology' && context === 'formality') {
-          // Apply preferred terminology if learned
-          enhanced = enhanced.replace(/\bpatient\b/gi, 'pt');
+        // Apply terminology preferences learned from user edits
+        if (type === 'terminology_preference') {
+          const recentCorrections = learningData.corrections
+            .filter(c => c.patterns && c.patterns.some(p => p.type === 'terminology_preference'))
+            .slice(-5); // Last 5 corrections
+          
+          recentCorrections.forEach(correction => {
+            correction.patterns.forEach(pattern => {
+              if (pattern.type === 'terminology_preference' && pattern.from && pattern.to) {
+                // Apply the learned terminology preference
+                const regex = new RegExp(`\\b${pattern.from}\\b`, 'gi');
+                enhanced = enhanced.replace(regex, pattern.to);
+              }
+            });
+          });
+        }
+        
+        // Apply structural preferences
+        if (type === 'organization' && context === 'imaging_separated') {
+          // User prefers initial vs follow-up imaging separation (already in template)
+        }
+        
+        if (type === 'organization' && context === 'pre_post_op_distinction') {
+          // User prefers clear pre/post-op distinction (already in template)
         }
       }
     });
@@ -1193,44 +1280,72 @@ DIAGNOSES
 Admitting Diagnosis: ${extractedData.admittingDiagnosis || '[Admitting Dx]'}
 Discharge Diagnosis: ${extractedData.dischargeDiagnosis || '[Discharge Dx]'}
 
-REASON FOR ADMISSION
-${extractedData.historyPresenting || '[History of presenting illness and reason for admission]'}
+INITIAL PRESENTATION
+Signs and Symptoms:
+${extractedData.historyPresenting || '[Initial presenting signs and symptoms on admission]'}
 
-PROCEDURES PERFORMED
-${formatList(extractedData.procedures, true)}
+Initial Imaging Studies:
+${extractedData.imaging && extractedData.imaging.length > 0 ? extractedData.imaging.slice(0, 2).map((img, i) => `${i + 1}. ${img}`).join('\n') : '[Initial CT/MRI/X-ray findings on presentation]'}
 
-IMAGING STUDIES & FINDINGS
-${extractedData.imaging && extractedData.imaging.length > 0 ? formatList(extractedData.imaging, false) : '[CT/MRI/X-ray findings]'}
+Pre-Operative Clinical Examination:
+${extractedData.currentExam || extractedData.neurologicalExam || '[Pre-operative neurological and physical examination findings]'}
 
-HOSPITAL COURSE
-${extractedData.hospitalCourse || '[Detailed hospital course including post-operative progress]'}
+TREATMENT AND INTERVENTIONS
+Surgery/Procedure Performed:
+${extractedData.procedures && extractedData.procedures.length > 0 ? 
+  extractedData.procedures.map((proc, i) => `${i + 1}. ${proc}${extractedData.admitDate ? ` (Date: ${extractedData.admitDate})` : ''}`).join('\n') : 
+  '[Surgery type, approach, and date]'}
 
-POST-OPERATIVE PROGRESS
-${extractedData.postOpProgress || '[Post-operative day-by-day progress]'}
+Complications:
+${extractedData.complications && extractedData.complications.length > 0 ? formatList(extractedData.complications, false) : 'None noted'}
 
-COMPLICATIONS
-${extractedData.complications && extractedData.complications.length > 0 ? formatList(extractedData.complications, false) : 'None'}
+Other Treatments:
+${extractedData.dischargeMedications && extractedData.dischargeMedications.length > 0 ? 
+  `Medical management included: ${extractedData.dischargeMedications.slice(0, 3).join(', ')}` : 
+  '[Other medical treatments, interventions]'}
 
-MAJOR EVENTS
+EVOLUTION OF CLINICAL COURSE
+Signs and Symptoms Evolution:
+${extractedData.postOpProgress || extractedData.hospitalCourse || '[Description of how symptoms evolved throughout hospitalization]'}
+
+Imaging Evolution:
+${extractedData.imaging && extractedData.imaging.length > 2 ? 
+  'Follow-up imaging:\n' + extractedData.imaging.slice(2).map((img, i) => `${i + 1}. ${img}`).join('\n') : 
+  '[Follow-up imaging studies and changes from initial studies]'}
+
+Major Events During Hospitalization:
 ${extractedData.majorEvents && extractedData.majorEvents.length > 0 ? formatList(extractedData.majorEvents, false) : 'None'}
 
-CONSULTANT RECOMMENDATIONS
-${extractedData.consultantRecommendations && extractedData.consultantRecommendations.length > 0 ? formatList(extractedData.consultantRecommendations, false) : 'None documented'}
-
-PHYSICAL EXAMINATION AT DISCHARGE
+POST-OPERATIVE STATUS
+Clinical Examination at Discharge:
 Vital Signs: ${extractedData.vitalSigns || 'Stable'}
 
 Neurological Examination:
-${extractedData.neurologicalExam || '[Mental status, cranial nerves, motor, sensory findings]'}
+${extractedData.neurologicalExam || extractedData.dischargeExam || '[Mental status, cranial nerves, motor, sensory, reflexes, coordination, gait]'}
 
-General Examination:
-${extractedData.dischargeExam || extractedData.currentExam || '[Complete physical exam findings]'}
+General Physical Examination:
+${extractedData.dischargeExam || extractedData.currentExam || '[Cardiovascular, respiratory, abdominal, wound assessment]'}
 
-FUNCTIONAL STATUS ASSESSMENT
-${extractedData.kps ? `Karnofsky Performance Status (KPS): ${extractedData.kps}` : ''}
+FUNCTIONAL STATUS AT DISCHARGE
+${extractedData.kps ? `Karnofsky Performance Status (KPS): ${extractedData.kps}` : '[KPS score to be assessed]'}
 ${extractedData.dischargeConditionScore ? `Discharge Condition Score: ${extractedData.dischargeConditionScore}` : ''}
-${extractedData.functionalStatus ? `Functional Assessment: ${extractedData.functionalStatus}` : ''}
-${!extractedData.kps && !extractedData.dischargeConditionScore && !extractedData.functionalStatus ? '[Functional status assessment based on physical exam and clinical course]' : ''}
+${extractedData.functionalStatus ? `Functional Assessment: ${extractedData.functionalStatus}` : '[Functional capabilities and independence level]'}
+
+REHABILITATION SERVICES
+Physical Therapy:
+${extractedData.consultantRecommendations && extractedData.consultantRecommendations.some(r => r.toLowerCase().includes('pt') || r.toLowerCase().includes('physical therapy')) ?
+  extractedData.consultantRecommendations.filter(r => r.toLowerCase().includes('pt') || r.toLowerCase().includes('physical therapy')).join('\n') :
+  '[Physical therapy evaluation and recommendations if consulted]'}
+
+Occupational Therapy:
+${extractedData.consultantRecommendations && extractedData.consultantRecommendations.some(r => r.toLowerCase().includes('ot') || r.toLowerCase().includes('occupational therapy')) ?
+  extractedData.consultantRecommendations.filter(r => r.toLowerCase().includes('ot') || r.toLowerCase().includes('occupational therapy')).join('\n') :
+  '[Occupational therapy evaluation and recommendations if consulted]'}
+
+CONSULTANT EVALUATIONS
+${extractedData.consultantRecommendations && extractedData.consultantRecommendations.length > 0 ? 
+  extractedData.consultantRecommendations.filter(r => !r.toLowerCase().includes('pt') && !r.toLowerCase().includes('ot') && !r.toLowerCase().includes('physical therapy') && !r.toLowerCase().includes('occupational therapy')).map((rec, i) => `${i + 1}. ${rec}`).join('\n') || 'None documented (besides PT/OT above)' :
+  'None documented'}
 
 PAST MEDICAL HISTORY
 ${formatList(extractedData.pmh)}
@@ -1240,8 +1355,8 @@ ${formatList(extractedData.psh)}
 
 ALLERGIES: ${extractedData.allergies || 'NKDA'}
 
-DISCHARGE INSTRUCTIONS
-Disposition: ${extractedData.disposition}
+FINAL DISCHARGE STATUS
+Clinical Status: ${extractedData.disposition || 'Improved and stable for discharge'}
 Diet: ${extractedData.diet}
 Activity: ${extractedData.activity}
 
@@ -1272,9 +1387,6 @@ DIAGNOSES
 Primary/Admitting Diagnosis: ${extractedData.admittingDiagnosis || '[Primary diagnosis]'}
 Discharge/Final Diagnosis: ${extractedData.dischargeDiagnosis || '[Final diagnosis with post-operative status]'}
 
-CHIEF COMPLAINT & REASON FOR ADMISSION
-${extractedData.historyPresenting || '[Detailed presenting symptoms, onset, progression, initial signs and symptoms leading to admission]'}
-
 PAST MEDICAL HISTORY
 ${formatList(extractedData.pmh)}
 
@@ -1283,53 +1395,68 @@ ${formatList(extractedData.psh)}
 
 ALLERGIES: ${extractedData.allergies || 'NKDA'}
 
-IMAGING STUDIES
+INITIAL PRESENTATION
+Chief Complaint & Presenting Signs/Symptoms:
+${extractedData.historyPresenting || '[Detailed presenting symptoms, onset, progression, initial signs and symptoms leading to admission]'}
+
+Pre-Operative Clinical Examination:
+Vital Signs: ${extractedData.vitalSigns || '[Admission vital signs]'}
+${extractedData.neurologicalExam ? `
+Neurological Examination: ${extractedData.neurologicalExam}` : ''}
+${extractedData.currentExam ? `
+General Examination: ${extractedData.currentExam}` : ''}
+${!extractedData.neurologicalExam && !extractedData.currentExam ? '[Complete pre-operative examination findings]' : ''}
+
+Initial Imaging Studies:
 ${extractedData.imaging && extractedData.imaging.length > 0 ? 
-  extractedData.imaging.map((img, i) => `\n${i + 1}. ${img}`).join('') : 
-  '[Detailed CT/MRI/X-ray findings including dates and key findings]'}
+  extractedData.imaging.slice(0, 2).map((img, i) => `${i + 1}. ${img}`).join('\n') : 
+  '[Detailed CT/MRI/X-ray findings on presentation including dates and key findings]'}
 
-PROCEDURES/OPERATIONS PERFORMED
+TREATMENT AND INTERVENTIONS
+Procedures/Operations Performed:
 ${extractedData.procedures && extractedData.procedures.length > 0 ?
-  extractedData.procedures.map((proc, i) => `${i + 1}. ${proc}`).join('\n') :
-  '[Date, procedure name, surgeon, approach, findings, complications]'}
+  extractedData.procedures.map((proc, i) => `${i + 1}. ${proc}${extractedData.admitDate ? ` (Date: ${extractedData.admitDate})` : ''}`).join('\n') :
+  '[Date, procedure name, surgeon, approach, operative findings, estimated blood loss, complications]'}
 
-HOSPITAL COURSE & POST-OPERATIVE PROGRESS
-
-Overview:
-${extractedData.hospitalCourse || '[Comprehensive narrative of hospital course]'}
-
-${extractedData.postOpProgress ? `
-Day-by-Day Progress:
-${extractedData.postOpProgress}` : ''}
-
-Treatment Summary:
-• Medical Management: [Medications, pain control, DVT prophylaxis]
-• Surgical Treatment: [As listed in procedures section]
-• Physical Therapy: [Mobility, strength, rehabilitation progress]
-• Symptom Evolution: [New, worsening, or improving symptoms noted during hospitalization]
-
-COMPLICATIONS
+Complications:
 ${extractedData.complications && extractedData.complications.length > 0 ? 
   extractedData.complications.map((comp, i) => `${i + 1}. ${comp}`).join('\n') : 
   'No intraoperative or postoperative complications noted.'}
 
-MAJOR EVENTS
+Other Medical Treatments:
+• Medical Management: ${extractedData.dischargeMedications && extractedData.dischargeMedications.length > 0 ? 
+  extractedData.dischargeMedications.slice(0, 3).join(', ') + (extractedData.dischargeMedications.length > 3 ? ', and others' : '') : 
+  '[Medications, pain control, DVT prophylaxis]'}
+• Symptom Management: [Pain management, nausea control, other supportive care]
+
+EVOLUTION OF CLINICAL COURSE
+Hospital Course Summary:
+${extractedData.hospitalCourse || '[Overview of hospital course from admission through discharge]'}
+
+Post-Operative Progress (Day-by-Day):
+${extractedData.postOpProgress || '[POD #1, POD #2, etc. with daily progress notes]'}
+
+Signs and Symptoms Evolution:
+[Description of how presenting symptoms evolved - improved, resolved, or persisted]
+
+Imaging Evolution:
+${extractedData.imaging && extractedData.imaging.length > 2 ? 
+  'Follow-up imaging studies:\n' + extractedData.imaging.slice(2).map((img, i) => `${i + 1}. ${img}`).join('\n') : 
+  '[Post-operative imaging studies and comparison to pre-operative findings]'}
+
+Major Events During Hospitalization:
 ${extractedData.majorEvents && extractedData.majorEvents.length > 0 ?
   extractedData.majorEvents.map((event, i) => `${i + 1}. ${event}`).join('\n') :
   'No major events during hospitalization.'}
 
-CONSULTANT EVALUATIONS & RECOMMENDATIONS
-${extractedData.consultantRecommendations && extractedData.consultantRecommendations.length > 0 ?
-  extractedData.consultantRecommendations.map((rec, i) => `${i + 1}. ${rec}`).join('\n') :
-  'No consultant evaluations documented or none required.'}
-
-DISCHARGE PHYSICAL EXAMINATION
-Date: ${extractedData.dischargeDate || new Date().toLocaleDateString()}
+POST-OPERATIVE STATUS AT DISCHARGE
+Clinical Examination:
+Date of Examination: ${extractedData.dischargeDate || new Date().toLocaleDateString()}
 
 Vital Signs: ${extractedData.vitalSigns || 'T: [temp] BP: [bp] HR: [hr] RR: [rr] O2 Sat: [sat]%'}
 
 Neurological Examination:
-${extractedData.neurologicalExam || `• Mental Status: [Alert, oriented x3, appropriate]
+${extractedData.neurologicalExam || extractedData.dischargeExam || `• Mental Status: [Alert, oriented x3, appropriate]
 • Cranial Nerves: [II-XII intact]
 • Motor: [Strength 5/5 bilateral upper/lower extremities]
 • Sensory: [Intact to light touch and pinprick]
@@ -1350,24 +1477,33 @@ General Physical Examination:
 • Skin/Wound: [Surgical incision clean, dry, intact]`}
 
 FUNCTIONAL STATUS AT DISCHARGE
-${extractedData.kps ? `Karnofsky Performance Status (KPS): ${extractedData.kps}` : ''}
-${extractedData.dischargeConditionScore ? `Discharge Condition Score: ${extractedData.dischargeConditionScore}` : ''}
+${extractedData.kps ? `Karnofsky Performance Status (KPS): ${extractedData.kps}` : '[KPS Score: To be assessed based on functional capabilities]'}
+${extractedData.dischargeConditionScore ? `
+Discharge Condition Score: ${extractedData.dischargeConditionScore}` : `
+Discharge Condition Score: [1-Critical, 2-Poor, 3-Fair, 4-Good, 5-Excellent]`}
 ${extractedData.functionalStatus ? `
-Functional Assessment: ${extractedData.functionalStatus}` : ''}
-${!extractedData.kps && !extractedData.dischargeConditionScore && !extractedData.functionalStatus ? `
-KPS Score: [To be assessed based on functional capabilities]
-- 100: Normal, no complaints, no evidence of disease
-- 90: Able to carry on normal activity, minor signs/symptoms
-- 80: Normal activity with effort, some signs/symptoms
-- 70: Cares for self, unable to carry on normal activity
-- 60: Requires occasional assistance
-- 50: Requires considerable assistance and frequent care
-- 40: Disabled, requires special care
-- 30: Severely disabled, hospitalization indicated
-- 20: Very sick, active supportive treatment necessary
-- 10: Moribund, fatal processes progressing rapidly
+Functional Assessment: ${extractedData.functionalStatus}` : `
+Functional Assessment: [Independence level, mobility, self-care abilities]`}
 
-Discharge Condition Score: [1-Critical, 2-Poor, 3-Fair, 4-Good, 5-Excellent]` : ''}
+REHABILITATION SERVICES
+Physical Therapy Evaluation and Recommendations:
+${extractedData.consultantRecommendations && extractedData.consultantRecommendations.some(r => r.toLowerCase().includes('pt') || r.toLowerCase().includes('physical therapy')) ?
+  extractedData.consultantRecommendations.filter(r => r.toLowerCase().includes('pt') || r.toLowerCase().includes('physical therapy')).join('\n') :
+  '[PT assessment of strength, mobility, transfers, gait; recommendations for ongoing therapy]'}
+
+Occupational Therapy Evaluation and Recommendations:
+${extractedData.consultantRecommendations && extractedData.consultantRecommendations.some(r => r.toLowerCase().includes('ot') || r.toLowerCase().includes('occupational therapy')) ?
+  extractedData.consultantRecommendations.filter(r => r.toLowerCase().includes('ot') || r.toLowerCase().includes('occupational therapy')).join('\n') :
+  '[OT assessment of ADLs, functional cognition; recommendations for adaptive equipment/strategies]'}
+
+CONSULTANT EVALUATIONS & RECOMMENDATIONS
+${extractedData.consultantRecommendations && extractedData.consultantRecommendations.length > 0 ?
+  extractedData.consultantRecommendations.filter(r => !r.toLowerCase().includes('pt') && !r.toLowerCase().includes('ot') && !r.toLowerCase().includes('physical therapy') && !r.toLowerCase().includes('occupational therapy')).map((rec, i) => `${i + 1}. ${rec}`).join('\n') || 'None documented (besides PT/OT listed above)' :
+  'No additional consultant evaluations documented or none required.'}
+
+FINAL DISCHARGE STATUS
+Clinical Status: ${extractedData.disposition || 'Patient improved and stable for discharge'}
+Overall Condition: [Summary of patient's status at time of discharge]
 
 DISCHARGE PLAN
 
