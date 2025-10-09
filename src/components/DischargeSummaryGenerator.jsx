@@ -376,9 +376,15 @@ const DischargeSummaryGenerator = () => {
       historyPresenting: '',
       hospitalCourse: '',
       complications: [],
+      imaging: [],
+      consultantRecommendations: [],
+      postOpProgress: '',
+      majorEvents: [],
       
       // Current Status
       currentExam: '',
+      dischargeExam: '',
+      neurologicalExam: '',
       vitalSigns: '',
       
       // Medications
@@ -527,6 +533,88 @@ const DischargeSummaryGenerator = () => {
         .map(item => item.trim());
     }
 
+    // Extract imaging findings (CT, MRI, X-ray)
+    const imagingMatch = allNotes.match(/(?:CT|MRI|X-ray|Imaging|Radiology)\s*(?:scan|report|findings|shows?|demonstrates?|reveals?)\s*:?\s*([\s\S]{30,500}?)(?=\n\n|\n(?:Labs?|Physical|Exam|Assessment|Plan)|$)/gi);
+    if (imagingMatch) {
+      extracted.imaging = imagingMatch.map(match => {
+        return match.replace(/(?:CT|MRI|X-ray|Imaging|Radiology)\s*(?:scan|report|findings|shows?|demonstrates?|reveals?)\s*:?\s*/i, '').trim();
+      });
+    }
+
+    // Extract complications
+    const complicationsMatch = allNotes.match(/(?:Complications?|Adverse Events?|Post-?op complications?)\s*:?\s*([\s\S]{20,400}?)(?=\n\n|\n[A-Z][a-z]+\s*:|$)/i);
+    if (complicationsMatch) {
+      extracted.complications = complicationsMatch[1]
+        .split(/[,;\n]/)
+        .filter(item => item.trim() && item.length > 3)
+        .map(item => item.trim());
+    } else {
+      // Extract implicit complications from progress notes
+      const implicitComplications = progressNotes.match(/\b(developed|experienced|had)\s+([\w\s]+(?:hemorrhage|infection|leak|dehiscence|failure|arrest|sepsis|pneumonia|DVT|PE|MI|stroke))/gi);
+      if (implicitComplications) {
+        extracted.complications = implicitComplications.map(match => 
+          match.replace(/\b(developed|experienced|had)\s+/i, '').trim()
+        );
+      }
+    }
+
+    // Extract consultant recommendations
+    const consultantNote = notes.consultant || '';
+    const consultMatch = consultantNote.match(/(?:Recommendations?|Plan|Suggest|Advise)\s*:?\s*([\s\S]{30,500}?)(?=\n\n|\n(?:Signed|Attending)|$)/i);
+    if (consultMatch) {
+      extracted.consultantRecommendations = consultMatch[1]
+        .split(/\n/)
+        .filter(item => item.trim() && item.length > 5)
+        .map(item => item.trim());
+    } else {
+      // Look for consultant opinions in progress notes
+      const consultRefs = allNotes.match(/(?:Consult(?:ant)?|Specialist|(?:Cardiology|Neurology|PT|OT|Rehab|Pain))\s+(?:recommend|suggest|advise|state)[sd]?\s*:?\s*([^\n]{20,200})/gi);
+      if (consultRefs) {
+        extracted.consultantRecommendations = consultRefs.map(match => match.trim());
+      }
+    }
+
+    // Extract post-operative progress (POD breakdown)
+    const podMatches = progressNotes.match(/(?:POD|Post-?op(?:erative)? day|Hospital day|HD)\s*#?\s*(\d+)\s*:?\s*([\s\S]{30,500}?)(?=\n(?:POD|Post-?op|Hospital day|HD|Date:|\d{1,2}\/\d{1,2})|\n\n|$)/gi);
+    if (podMatches) {
+      extracted.postOpProgress = podMatches.join('\n\n');
+    }
+
+    // Extract major events
+    const majorEventsPatterns = [
+      /\b(code blue|rapid response|ICU transfer|intubat(?:ed|ion)|extubat(?:ed|ion)|cardiac arrest|seizure|stroke|hemorrhage|reoperation)\b/gi,
+      /\b(transferred to ICU|admitted to ICU|return to OR|emergency surgery)\b/gi
+    ];
+    
+    majorEventsPatterns.forEach(pattern => {
+      const matches = allNotes.matchAll(pattern);
+      for (const match of matches) {
+        // Get surrounding context for the event
+        const index = match.index;
+        const before = allNotes.substring(Math.max(0, index - 50), index);
+        const after = allNotes.substring(index, Math.min(allNotes.length, index + 100));
+        const eventContext = (before + match[0] + after).trim();
+        
+        if (!extracted.majorEvents.some(e => e.toLowerCase().includes(match[0].toLowerCase()))) {
+          extracted.majorEvents.push(eventContext);
+        }
+      }
+    });
+
+    // Extract discharge exam (separate from admission exam)
+    const dischargeExamMatch = finalNote.match(/(?:Discharge Exam|Physical Exam(?:ination)? at Discharge|Final Exam)\s*:?\s*([\s\S]{30,500}?)(?=\n\n|\n(?:Labs?|Medications|Disposition)|$)/i);
+    if (dischargeExamMatch) {
+      extracted.dischargeExam = dischargeExamMatch[1].trim();
+    } else if (extracted.currentExam) {
+      extracted.dischargeExam = extracted.currentExam;
+    }
+
+    // Extract neurological exam specifically
+    const neuroExamMatch = allNotes.match(/(?:Neuro(?:logical)? Exam|Mental Status|CN|Cranial Nerves|Motor|Sensory)\s*:?\s*([\s\S]{30,400}?)(?=\n\n|\n(?:Cardiovascular|Respiratory|Labs)|$)/i);
+    if (neuroExamMatch) {
+      extracted.neurologicalExam = neuroExamMatch[1].trim();
+    }
+
     return extracted;
   }, [detectedNotes, analyzeTextSemantically]);
 
@@ -539,18 +627,25 @@ const DischargeSummaryGenerator = () => {
     }
 
     const notes = detectedNotes;
-    const prompt = `You are a medical AI specialized in extracting neurosurgical patient information. 
+    const prompt = `You are a medical AI specialized in extracting neurosurgical and spine patient information. 
 Extract the following information from these clinical notes and return as JSON:
 - patientName, age, sex, mrn
 - admitDate, dischargeDate
 - admittingDiagnosis, dischargeDiagnosis
 - procedures (array), complications (array)
 - historyPresenting, hospitalCourse
-- currentExam, vitalSigns
+- imaging (array - CT/MRI/X-ray findings)
+- consultantRecommendations (array - recommendations from consultants)
+- postOpProgress (string - post-operative day-by-day progress)
+- majorEvents (array - significant events during hospitalization)
+- currentExam, dischargeExam, neurologicalExam, vitalSigns
 - dischargeMedications (array), allergies
 - pmh (array), psh (array)
 - disposition, diet, activity
 - followUp (array)
+
+Focus on: reason for admission, signs/symptoms, imaging findings, surgical treatments, post-operative progress, 
+symptom changes (new/worsening/improving), major events, consultant plans.
 
 ADMISSION NOTE:
 ${notes.admission}
@@ -953,18 +1048,38 @@ DIAGNOSES
 Admitting Diagnosis: ${extractedData.admittingDiagnosis || '[Admitting Dx]'}
 Discharge Diagnosis: ${extractedData.dischargeDiagnosis || '[Discharge Dx]'}
 
+REASON FOR ADMISSION
+${extractedData.historyPresenting || '[History of presenting illness and reason for admission]'}
+
 PROCEDURES PERFORMED
 ${formatList(extractedData.procedures, true)}
 
-HISTORY OF PRESENT ILLNESS
-${extractedData.historyPresenting || '[HPI]'}
+IMAGING STUDIES & FINDINGS
+${extractedData.imaging && extractedData.imaging.length > 0 ? formatList(extractedData.imaging, false) : '[CT/MRI/X-ray findings]'}
 
 HOSPITAL COURSE
-${extractedData.hospitalCourse || '[Hospital course details]'}
+${extractedData.hospitalCourse || '[Detailed hospital course including post-operative progress]'}
+
+POST-OPERATIVE PROGRESS
+${extractedData.postOpProgress || '[Post-operative day-by-day progress]'}
+
+COMPLICATIONS
+${extractedData.complications && extractedData.complications.length > 0 ? formatList(extractedData.complications, false) : 'None'}
+
+MAJOR EVENTS
+${extractedData.majorEvents && extractedData.majorEvents.length > 0 ? formatList(extractedData.majorEvents, false) : 'None'}
+
+CONSULTANT RECOMMENDATIONS
+${extractedData.consultantRecommendations && extractedData.consultantRecommendations.length > 0 ? formatList(extractedData.consultantRecommendations, false) : 'None documented'}
 
 PHYSICAL EXAMINATION AT DISCHARGE
 Vital Signs: ${extractedData.vitalSigns || 'Stable'}
-${extractedData.currentExam || '[Physical exam findings]'}
+
+Neurological Examination:
+${extractedData.neurologicalExam || '[Mental status, cranial nerves, motor, sensory findings]'}
+
+General Examination:
+${extractedData.dischargeExam || extractedData.currentExam || '[Complete physical exam findings]'}
 
 PAST MEDICAL HISTORY
 ${formatList(extractedData.pmh)}
@@ -974,9 +1089,6 @@ ${formatList(extractedData.psh)}
 
 ALLERGIES: ${extractedData.allergies || 'NKDA'}
 
-DISCHARGE MEDICATIONS
-${formatList(extractedData.dischargeMedications, true)}
-
 DISCHARGE INSTRUCTIONS
 Disposition: ${extractedData.disposition}
 Diet: ${extractedData.diet}
@@ -985,14 +1097,146 @@ Activity: ${extractedData.activity}
 FOLLOW-UP APPOINTMENTS
 ${formatList(extractedData.followUp)}
 
+DISCHARGE MEDICATIONS
+${formatList(extractedData.dischargeMedications, true)}
+
 If you have any questions or concerns, please contact your physician.
 
 _______________________________
 Physician Signature`,
 
-      detailed: () => `COMPREHENSIVE DISCHARGE SUMMARY
+      detailed: () => `COMPREHENSIVE DISCHARGE SUMMARY - NEUROSURGERY/SPINE
 ================================================================================
-[Detailed template with additional sections...]`,
+Date: ${new Date().toLocaleDateString()}
+
+PATIENT INFORMATION
+Name: ${extractedData.patientName || '[Name]'}
+Age/Sex: ${extractedData.age || '[Age]'} / ${extractedData.sex || '[Sex]'}
+MRN: ${extractedData.mrn || '[MRN]'}
+Admission Date: ${extractedData.admitDate || '[Admit Date]'}
+Discharge Date: ${extractedData.dischargeDate || '[Discharge Date]'}
+Length of Stay: ${extractedData.los || '[Calculate from dates]'}
+
+DIAGNOSES
+Primary/Admitting Diagnosis: ${extractedData.admittingDiagnosis || '[Primary diagnosis]'}
+Discharge/Final Diagnosis: ${extractedData.dischargeDiagnosis || '[Final diagnosis with post-operative status]'}
+
+CHIEF COMPLAINT & REASON FOR ADMISSION
+${extractedData.historyPresenting || '[Detailed presenting symptoms, onset, progression, initial signs and symptoms leading to admission]'}
+
+PAST MEDICAL HISTORY
+${formatList(extractedData.pmh)}
+
+PAST SURGICAL HISTORY
+${formatList(extractedData.psh)}
+
+ALLERGIES: ${extractedData.allergies || 'NKDA'}
+
+IMAGING STUDIES
+${extractedData.imaging && extractedData.imaging.length > 0 ? 
+  extractedData.imaging.map((img, i) => `\n${i + 1}. ${img}`).join('') : 
+  '[Detailed CT/MRI/X-ray findings including dates and key findings]'}
+
+PROCEDURES/OPERATIONS PERFORMED
+${extractedData.procedures && extractedData.procedures.length > 0 ?
+  extractedData.procedures.map((proc, i) => `${i + 1}. ${proc}`).join('\n') :
+  '[Date, procedure name, surgeon, approach, findings, complications]'}
+
+HOSPITAL COURSE & POST-OPERATIVE PROGRESS
+
+Overview:
+${extractedData.hospitalCourse || '[Comprehensive narrative of hospital course]'}
+
+${extractedData.postOpProgress ? `
+Day-by-Day Progress:
+${extractedData.postOpProgress}` : ''}
+
+Treatment Summary:
+• Medical Management: [Medications, pain control, DVT prophylaxis]
+• Surgical Treatment: [As listed in procedures section]
+• Physical Therapy: [Mobility, strength, rehabilitation progress]
+• Symptom Evolution: [New, worsening, or improving symptoms noted during hospitalization]
+
+COMPLICATIONS
+${extractedData.complications && extractedData.complications.length > 0 ? 
+  extractedData.complications.map((comp, i) => `${i + 1}. ${comp}`).join('\n') : 
+  'No intraoperative or postoperative complications noted.'}
+
+MAJOR EVENTS
+${extractedData.majorEvents && extractedData.majorEvents.length > 0 ?
+  extractedData.majorEvents.map((event, i) => `${i + 1}. ${event}`).join('\n') :
+  'No major events during hospitalization.'}
+
+CONSULTANT EVALUATIONS & RECOMMENDATIONS
+${extractedData.consultantRecommendations && extractedData.consultantRecommendations.length > 0 ?
+  extractedData.consultantRecommendations.map((rec, i) => `${i + 1}. ${rec}`).join('\n') :
+  'No consultant evaluations documented or none required.'}
+
+DISCHARGE PHYSICAL EXAMINATION
+Date: ${extractedData.dischargeDate || new Date().toLocaleDateString()}
+
+Vital Signs: ${extractedData.vitalSigns || 'T: [temp] BP: [bp] HR: [hr] RR: [rr] O2 Sat: [sat]%'}
+
+Neurological Examination:
+${extractedData.neurologicalExam || `• Mental Status: [Alert, oriented x3, appropriate]
+• Cranial Nerves: [II-XII intact]
+• Motor: [Strength 5/5 bilateral upper/lower extremities]
+• Sensory: [Intact to light touch and pinprick]
+• Reflexes: [DTRs 2+ and symmetric]
+• Coordination: [Normal finger-to-nose, heel-to-shin]
+• Gait: [Steady, independent/assisted]`}
+
+${extractedData.dischargeExam || extractedData.currentExam ? `
+General Physical Examination:
+${extractedData.dischargeExam || extractedData.currentExam}` : `
+General Physical Examination:
+• General: Well-appearing, no acute distress
+• HEENT: Normocephalic, atraumatic
+• Cardiovascular: Regular rate and rhythm
+• Respiratory: Clear to auscultation bilaterally
+• Abdomen: Soft, non-tender, non-distended
+• Extremities: No edema
+• Skin/Wound: [Surgical incision clean, dry, intact]`}
+
+DISCHARGE PLAN
+
+Disposition: ${extractedData.disposition}
+
+Activity: ${extractedData.activity}
+
+Diet: ${extractedData.diet}
+
+Wound Care: [Specific instructions for surgical site care]
+
+Warning Signs - Call physician or go to ER if:
+• Severe headache or neck pain
+• New or worsening weakness or numbness
+• Fever > 101.5°F
+• Wound drainage, redness, or swelling
+• Loss of bowel/bladder control
+• Severe pain not controlled by medications
+• Any other concerning symptoms
+
+FOLLOW-UP CARE
+${formatList(extractedData.followUp)}
+${!extractedData.followUp || extractedData.followUp.length === 0 ? '• Follow up with surgeon in 2 weeks\n• Follow up with primary care physician in 1-2 weeks\n• Physical therapy as arranged' : ''}
+
+DISCHARGE MEDICATIONS
+${formatList(extractedData.dischargeMedications, true)}
+${!extractedData.dischargeMedications || extractedData.dischargeMedications.length === 0 ? '[Medication list with name, dose, frequency, duration, and indication]' : ''}
+
+ADDITIONAL INSTRUCTIONS
+• Continue all medications as prescribed
+• Attend all follow-up appointments
+• Comply with activity restrictions
+• Practice proper wound care
+• Contact physician with any concerns
+
+_______________________________
+Attending Physician Signature
+
+_______________________________
+Date`,
 
       brief: () => `DISCHARGE SUMMARY - BRIEF
 ================================================================================
@@ -1001,6 +1245,10 @@ Dates: ${extractedData.admitDate || '[Admit]'} to ${extractedData.dischargeDate 
 
 Diagnosis: ${extractedData.dischargeDiagnosis || '[Diagnosis]'}
 Procedures: ${extractedData.procedures?.join(', ') || 'None'}
+
+Course: ${extractedData.hospitalCourse || '[Brief hospital course]'}
+
+Discharge Exam: ${extractedData.dischargeExam || extractedData.currentExam || 'Stable'}
 
 Medications:
 ${formatList(extractedData.dischargeMedications, true)}
