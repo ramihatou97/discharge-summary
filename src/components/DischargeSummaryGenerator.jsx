@@ -1610,12 +1610,12 @@ Disposition: ${extractedData.disposition}`
                   <span className="text-sm font-medium">Use Multi-AI Extraction</span>
                   <Brain className="h-4 w-4 text-purple-600" />
                 </label>
-                {useAI && !geminiApiKey && !openaiApiKey && !claudeApiKey && (
+                {useAI && (
                   <button
                     onClick={() => setShowApiKeyInput(!showApiKeyInput)}
                     className="text-xs text-blue-600 hover:underline"
                   >
-                    Add API Keys
+                    {geminiApiKey || openaiApiKey || claudeApiKey ? 'Manage API Keys' : 'Add API Keys'}
                   </button>
                 )}
               </div>
