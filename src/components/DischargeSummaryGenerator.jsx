@@ -67,12 +67,25 @@ const DischargeSummaryGenerator = () => {
     if (savedData) {
       try {
         const parsed = JSON.parse(savedData);
-        if (parsed.unifiedNotes) setUnifiedNotes(parsed.unifiedNotes);
-        if (parsed.detectedNotes) setDetectedNotes(parsed.detectedNotes);
-        setSuccess('Previous draft restored');
-        setTimeout(() => setSuccess(''), 3000);
+
+        // If there is a savedAt timestamp, only restore drafts younger than 24 hours
+        const savedAt = parsed?.savedAt ? new Date(parsed.savedAt).getTime() : null;
+        const now = Date.now();
+        const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+
+        const isRecent = savedAt ? (now - savedAt) <= TWENTY_FOUR_HOURS : false;
+
+        // Backwards-compat: some older saved drafts used key 'clinicalNotes'
+        const content = parsed.unifiedNotes || parsed.clinicalNotes || '';
+
+        if (content && (isRecent || !parsed.savedAt)) {
+          setUnifiedNotes(content);
+          if (parsed.detectedNotes) setDetectedNotes(parsed.detectedNotes);
+          setSuccess('Previous draft restored');
+          setTimeout(() => setSuccess(''), 3000);
+        }
       } catch (e) {
-        console.error('Failed to load saved draft');
+        console.error('Failed to load saved draft', e);
       }
     }
 
@@ -97,6 +110,7 @@ const DischargeSummaryGenerator = () => {
       if (unifiedNotes || Object.values(detectedNotes).some(n => n)) {
         localStorage.setItem('dischargeSummaryDraft', JSON.stringify({
           unifiedNotes,
+          clinicalNotes: unifiedNotes, // backward compatibility
           detectedNotes,
           savedAt: new Date().toISOString()
         }));

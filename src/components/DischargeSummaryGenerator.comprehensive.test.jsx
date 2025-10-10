@@ -17,13 +17,16 @@ describe('DischargeSummaryGenerator - Comprehensive Tests', () => {
       const textarea = screen.getByPlaceholderText(/Paste all clinical notes here/i)
       await user.type(textarea, 'Test note for auto-save')
 
+      // Wait for the 2-second debounce + a bit more
+      await new Promise(resolve => setTimeout(resolve, 2500))
+
       await waitFor(() => {
         const saved = localStorage.getItem('dischargeSummaryDraft')
         expect(saved).toBeTruthy()
-      }, { timeout: 3000 })
+      })
     })
 
-    it('loads saved draft from localStorage on mount', () => {
+    it('loads saved draft from localStorage on mount', async () => {
       const draftData = {
         clinicalNotes: 'Previously saved notes',
         savedAt: new Date().toISOString()
@@ -33,10 +36,12 @@ describe('DischargeSummaryGenerator - Comprehensive Tests', () => {
       render(<DischargeSummaryGenerator />)
 
       const textarea = screen.getByPlaceholderText(/Paste all clinical notes here/i)
-      expect(textarea).toHaveValue('Previously saved notes')
+      await waitFor(() => {
+        expect(textarea.value).toBe('Previously saved notes')
+      }, { timeout: 1000 })
     })
 
-    it('does not load draft older than 24 hours', () => {
+    it('does not load draft older than 24 hours', async () => {
       const oldDate = new Date()
       oldDate.setHours(oldDate.getHours() - 25) // 25 hours ago
 
@@ -49,7 +54,10 @@ describe('DischargeSummaryGenerator - Comprehensive Tests', () => {
       render(<DischargeSummaryGenerator />)
 
       const textarea = screen.getByPlaceholderText(/Paste all clinical notes here/i)
-      expect(textarea).toHaveValue('')
+      // Wait a bit to ensure the effect has run
+      await waitFor(() => {
+        expect(textarea.value).toBe('')
+      }, { timeout: 1000 })
     })
   })
 
@@ -211,11 +219,12 @@ Hospital Course: Patient underwent successful appendectomy. Recovery was unevent
       const user = userEvent.setup()
 
       // Mock clipboard API
-      Object.assign(navigator, {
-        clipboard: {
+      Object.defineProperty(navigator, 'clipboard', {
+        value: {
           writeText: vi.fn().mockResolvedValue(undefined)
-        }
-      })
+        },
+        configurable: true
+      });
 
       render(<DischargeSummaryGenerator />)
 
@@ -302,12 +311,8 @@ Ready for discharge
 
       // System should auto-detect the different note types
       await waitFor(() => {
-        // Look for indicators that notes were detected
-        const detected = screen.queryByText(/detected|found/i)
-        if (!detected) {
-          // At minimum, extraction should complete without error
-          expect(extractButton).not.toBeDisabled()
-        }
+        // Check the explicit detected-notes header is present
+        expect(screen.getByText(/Detected Note Types:/i)).toBeInTheDocument();
       }, { timeout: 3000 })
     })
   })
@@ -389,7 +394,7 @@ Ready for discharge
 
       // Wait and check if ML data was potentially stored
       await waitFor(() => {
-        const mlData = localStorage.getItem('dischargeSummaryML')
+        const mlData = localStorage.getItem('dischargeSummaryLearning')
         // ML feature might or might not store data, just checking it doesn't error
         expect(mlData !== undefined).toBe(true)
       }, { timeout: 3000 })
