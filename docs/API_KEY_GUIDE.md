@@ -1,5 +1,7 @@
 # API Key Guide: Complete LLM Integration
 
+**📊 For visual diagrams, see [LLM_VISUAL_GUIDE.md](LLM_VISUAL_GUIDE.md)**
+
 ## Overview
 
 This application uses **Large Language Models (LLMs) at EVERY level** that requires:
