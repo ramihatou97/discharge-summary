@@ -6,9 +6,11 @@ An educational tool for learning neurosurgical documentation automation, with AI
 
 **Comprehensive documentation available in the `/docs` folder:**
 
+- 🔑 **[API Key Guide](docs/API_KEY_GUIDE.md)** - **ESSENTIAL**: Where and how to add API keys for full LLM integration (NEW!)
 - 📖 **[Quick Reference Guide](docs/QUICK_REFERENCE.md)** - Start here! Simple explanation of how everything works
-- 🎓 **[Training Examples Guide](docs/TRAINING_EXAMPLES_GUIDE.md)** - Learn how to teach the system with real examples (NEW!)
+- 🎓 **[Training Examples Guide](docs/TRAINING_EXAMPLES_GUIDE.md)** - Learn how to teach the system with real examples
 - 🔧 **[Technical Documentation](docs/TECHNICAL_DOCUMENTATION.md)** - Deep dive into algorithms, architecture, and implementation
+- 🧠 **[Hybrid Architecture](docs/HYBRID_ARCHITECTURE.md)** - Complete LLM integration architecture
 - 🔍 **[Critical Appraisal](docs/CRITICAL_APPRAISAL.md)** - Honest assessment of strengths, weaknesses, and limitations
 - 🚀 **[Enhancement Recommendations](docs/ENHANCEMENT_RECOMMENDATIONS.md)** - Prioritized roadmap for improvements
 - 🏗️ **[Architecture](docs/ARCHITECTURE.md)** - System architecture and design patterns
@@ -78,18 +80,26 @@ The app will open at `http://localhost:3000`
 
 ## 🔧 Configuration
 
-### Optional AI Integration
+### LLM Integration (Recommended)
 
-The app works perfectly offline with pattern-based extraction. For enhanced extraction, you can optionally configure AI APIs:
+The app works offline with pattern-based extraction, but **LLM integration provides superior results** by:
+- **Reading and understanding** clinical notes with medical context
+- **Deeply analyzing** complications, recommendations, and clinical events
+- **Synthesizing** comprehensive narratives from extracted data
+- **Summarizing** discharge information in professional format
+
+**To enable full LLM integration:**
 
 1. Click the **Settings** icon
 2. Enable "Use Multi-AI Extraction"
-3. Add API keys (one or more):
+3. Add API keys (in the browser UI, NOT in GitHub):
    - **Gemini API Key**: Primary medical extraction (get from [Google AI Studio](https://makersuite.google.com/app/apikey))
-   - **OpenAI API Key**: Clinical synthesis (optional)
-   - **Claude API Key**: Structuring and organization (optional)
+   - **OpenAI API Key**: Clinical synthesis (optional, for enhanced narratives)
+   - **Claude API Key**: Structuring and organization (optional, for better formatting)
 
-**Note**: API keys are stored locally in your browser and never sent to any server except the respective AI providers.
+**Important**: API keys are stored locally in your browser and never sent to any server except the respective AI providers. For GitHub Pages deployment, users enter API keys in the browser application, NOT in the repository.
+
+📖 **See [API Key Guide](docs/API_KEY_GUIDE.md) for detailed instructions and full LLM integration scope.**
 
 ## 📖 Usage
 
