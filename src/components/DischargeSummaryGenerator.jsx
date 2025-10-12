@@ -1847,13 +1847,13 @@ Disposition: ${extractedData.disposition}`
             {autoSave && (
               <span className="text-xs text-green-600 flex items-center">
                 <Save className="h-3 w-3 mr-1" />
-                Auto-save on
+                Auto-save input on
               </span>
             )}
             <button
               onClick={() => setAutoSave(!autoSave)}
               className="btn-secondary text-sm"
-              title="Toggle auto-save"
+              title="Toggle auto-save for input text only (ML learnings always saved)"
             >
               <Database className="h-4 w-4" />
             </button>
@@ -2195,6 +2195,7 @@ Patient ready for discharge...`}
                     <p className="font-medium">ML Learning Mode Active</p>
                     <p className="text-xs mt-1">
                       Your edits will be analyzed (without storing patient data) to improve future summaries.
+                      ML learnings are always auto-saved and persist through updates.
                       Total edits learned: {learningData.totalEdits}
                     </p>
                   </div>

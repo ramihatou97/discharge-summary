@@ -253,17 +253,17 @@ Hospital Course: Patient underwent successful appendectomy. Recovery was unevent
       render(<DischargeSummaryGenerator />)
 
       // Auto-save should be on by default
-      expect(screen.getByText(/Auto-save on/i)).toBeInTheDocument()
+      expect(screen.getByText(/Auto-save input on/i)).toBeInTheDocument()
 
-      const toggleButton = screen.getByTitle('Toggle auto-save')
+      const toggleButton = screen.getByTitle(/Toggle auto-save/)
       await user.click(toggleButton)
 
       // Check if it toggles (might show "Auto-save off" or hide the indicator)
       await waitFor(() => {
-        const autoSaveOff = screen.queryByText(/Auto-save off/i)
+        const autoSaveOff = screen.queryByText(/Auto-save (input )?off/i)
         if (!autoSaveOff) {
           // If text changes to off, check for it
-          const stillOn = screen.queryByText(/Auto-save on/i)
+          const stillOn = screen.queryByText(/Auto-save input on/i)
           expect(stillOn).not.toBeInTheDocument()
         }
       })
@@ -371,7 +371,7 @@ Ready for discharge
 
       const extractButton = screen.getByRole('button', { name: /Auto-Detect & Extract Information/i })
       const clearButton = screen.getByTitle('Clear all data')
-      const autoSaveButton = screen.getByTitle('Toggle auto-save')
+      const autoSaveButton = screen.getByTitle(/Toggle auto-save/)
 
       expect(extractButton).toBeInTheDocument()
       expect(clearButton).toBeInTheDocument()
