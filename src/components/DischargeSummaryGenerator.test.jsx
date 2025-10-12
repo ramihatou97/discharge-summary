@@ -86,7 +86,7 @@ describe('DischargeSummaryGenerator Component', () => {
 
   it('shows auto-save indicator when enabled', () => {
     render(<DischargeSummaryGenerator />)
-    expect(screen.getByText(/Auto-save on/i)).toBeInTheDocument()
+    expect(screen.getByText(/Auto-save input on/i)).toBeInTheDocument()
   })
 
   it('renders template selector', () => {
