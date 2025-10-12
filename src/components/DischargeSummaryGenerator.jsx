@@ -1,14 +1,23 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { 
-  FileText, Download, Copy, AlertCircle, CheckCircle, 
+import {
+  FileText, Download, Copy, AlertCircle, CheckCircle,
   Upload, Trash2, Wand2, RefreshCw, Edit, Settings,
   Save, Eye, EyeOff, Printer, Shield, Database,
   Activity, Clock, ClipboardList, ChevronDown, ChevronRight,
   Heart, Brain, Zap, Loader2, Info, BookOpen
 } from 'lucide-react';
 import TrainingExamplesManager from './TrainingExamplesManager';
+import { useHybridDischargeSummary } from '../hooks/useHybridDischargeSummary';
 
 const DischargeSummaryGenerator = () => {
+  // Hybrid Backend Hook
+  const {
+    loading: hybridLoading,
+    error: hybridError,
+    result: hybridResult,
+    generateSummary: generateHybridSummary
+  } = useHybridDischargeSummary();
+
   // Core State - Single unified input
   const [unifiedNotes, setUnifiedNotes] = useState('');
   const [detectedNotes, setDetectedNotes] = useState({
@@ -21,7 +30,7 @@ const DischargeSummaryGenerator = () => {
   const [extractedData, setExtractedData] = useState(null);
   const [generatedSummary, setGeneratedSummary] = useState('');
   const [editableSummary, setEditableSummary] = useState('');
-  
+
   // UI State
   const [activeTab, setActiveTab] = useState('input');
   const [loading, setLoading] = useState(false);
@@ -30,7 +39,7 @@ const DischargeSummaryGenerator = () => {
   const [success, setSuccess] = useState('');
   const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  
+
   // Settings - Multi-AI Configuration
   const [useAI, setUseAI] = useState(false);
   const [geminiApiKey, setGeminiApiKey] = useState('');
@@ -1074,7 +1083,47 @@ Return the structured data in the same JSON format with improved organization an
     return extractedData;
   }, [geminiApiKey, openaiApiKey, claudeApiKey, extractWithGemini, synthesizeWithOpenAI, structureWithClaude, extractWithPatterns]);
 
-  // Main extraction handler with note detection
+  // Helper: Map hybrid result to UI state format
+  const mapHybridResultToUIState = (hybridResult) => {
+    if (!hybridResult || !hybridResult.summary) return null;
+
+    const summary = hybridResult.summary;
+    return {
+      // Patient demographics
+      patientName: summary.patientName || '',
+      age: summary.age || '',
+      sex: summary.sex || '',
+      mrn: summary.mrn || '',
+
+      // Dates
+      admitDate: summary.admitDate || '',
+      dischargeDate: summary.dischargeDate || '',
+      procedureDate: summary.procedureDate || '',
+
+      // Clinical data
+      admittingDiagnosis: summary.admittingDiagnosis || '',
+      dischargeDiagnosis: summary.dischargeDiagnosis || '',
+      procedures: summary.procedures || '',
+      complications: summary.complications || '',
+      consultants: summary.consultants || '',
+
+      // Medications
+      medications: summary.medications || '',
+
+      // Narratives
+      hospitalCourse: summary.hospitalCourse || '',
+      dischargeInstructions: summary.dischargeInstructions || '',
+      followUp: summary.followUp || '',
+
+      // Metadata
+      confidence: hybridResult.completeness || 0,
+      extractionMethod: hybridResult.metadata?.approach || 'hybrid',
+      pipeline: hybridResult.pipeline || [],
+      validation: hybridResult.validation || {}
+    };
+  };
+
+  // Main extraction handler with hybrid backend
   const handleExtractData = async () => {
     if (!unifiedNotes.trim()) {
       setError('Please enter clinical notes');
@@ -1090,31 +1139,64 @@ Return the structured data in the same JSON format with improved organization an
       // Step 1: Detect note types
       const detected = detectNoteTypes(unifiedNotes);
       setDetectedNotes(detected);
-      
+
       // Show what was detected
       const detectedTypes = Object.entries(detected)
         .filter(([_, content]) => content.trim())
         .map(([type, _]) => type);
-      
+
       if (detectedTypes.length > 0) {
         setSuccess(`Detected notes: ${detectedTypes.join(', ')}`);
       }
 
-      // Step 2: Extract data using multi-AI or patterns
+      // Step 2: Extract data using hybrid backend
       let extracted;
-      
-      if (useAI && (geminiApiKey || openaiApiKey || claudeApiKey)) {
-        try {
-          extracted = await extractWithMultiAI();
-          setSuccess('Multi-AI extraction completed successfully');
-        } catch (aiError) {
-          console.warn('AI extraction failed, falling back to patterns:', aiError);
+
+      try {
+        // Prepare API keys for hybrid backend
+        const apiKeys = {
+          claude: claudeApiKey,
+          openai: openaiApiKey,
+          gemini: geminiApiKey
+        };
+
+        // Call hybrid backend
+        await generateHybridSummary(detected, apiKeys, useAI);
+
+        // Map hybrid result to UI format
+        if (hybridResult) {
+          extracted = mapHybridResultToUIState(hybridResult);
+
+          // Show success with method used
+          const method = extracted.extractionMethod;
+          setSuccess(`✓ Hybrid extraction completed (${method})`);
+
+          // Show validation warnings if any
+          if (hybridResult.validation?.warnings?.length > 0) {
+            setWarnings(hybridResult.validation.warnings);
+          }
+        } else {
+          // Fallback to pattern extraction
           extracted = extractWithPatterns(detected);
-          setWarnings(['AI extraction failed, used pattern matching instead']);
+          setSuccess('Pattern extraction completed');
         }
-      } else {
-        extracted = extractWithPatterns(detected);
-        setSuccess('Pattern extraction completed');
+      } catch (hybridError) {
+        console.warn('Hybrid backend failed, using legacy extraction:', hybridError);
+
+        // Fallback to legacy multi-AI or patterns
+        if (useAI && (geminiApiKey || openaiApiKey || claudeApiKey)) {
+          try {
+            extracted = await extractWithMultiAI();
+            setSuccess('Multi-AI extraction completed (legacy)');
+          } catch (aiError) {
+            console.warn('AI extraction failed, falling back to patterns:', aiError);
+            extracted = extractWithPatterns(detected);
+            setWarnings(['AI extraction failed, used pattern matching instead']);
+          }
+        } else {
+          extracted = extractWithPatterns(detected);
+          setSuccess('Pattern extraction completed');
+        }
       }
 
       // Validate extracted data
