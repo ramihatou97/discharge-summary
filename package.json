@@ -42,5 +42,9 @@
     "vite": "^7.1.9",
     "vitest": "^3.2.4"
   },
-  "homepage": "https://ramihatou97.github.io/discharge-summary"
+  "homepage": "https://ramihatou97.github.io/discharge-summary",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
 }
