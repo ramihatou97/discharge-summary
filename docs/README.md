@@ -6,10 +6,13 @@ An educational tool for learning neurosurgical documentation automation, with AI
 
 **Comprehensive documentation available!**
 
-- 📖 **[Quick Reference Guide](../QUICK_REFERENCE.md)** - Start here! Simple explanation of how everything works
-- 🔧 **[Technical Documentation](../TECHNICAL_DOCUMENTATION.md)** - Deep dive into algorithms, architecture, and implementation
-- 🔍 **[Critical Appraisal](../CRITICAL_APPRAISAL.md)** - Honest assessment of strengths, weaknesses, and limitations  
-- 🚀 **[Enhancement Recommendations](../ENHANCEMENT_RECOMMENDATIONS.md)** - Prioritized roadmap for improvements
+- 🔑 **[API Key Guide](API_KEY_GUIDE.md)** - ⭐ **NEW! ESSENTIAL**: Where and how to insert API keys for full LLM integration
+- 📖 **[Quick Reference Guide](QUICK_REFERENCE.md)** - Start here! Simple explanation of how everything works
+- 🧠 **[Hybrid Architecture](HYBRID_ARCHITECTURE.md)** - Complete LLM integration architecture
+- 🔧 **[Technical Documentation](TECHNICAL_DOCUMENTATION.md)** - Deep dive into algorithms, architecture, and implementation
+- 🔍 **[Critical Appraisal](CRITICAL_APPRAISAL.md)** - Honest assessment of strengths, weaknesses, and limitations  
+- 🚀 **[Enhancement Recommendations](ENHANCEMENT_RECOMMENDATIONS.md)** - Prioritized roadmap for improvements
+- 📋 **[Single User Deployment](SINGLE_USER_DEPLOYMENT.md)** - Deploy to GitHub Pages (free forever)
 
 ## ⚠️ Important Notice
 

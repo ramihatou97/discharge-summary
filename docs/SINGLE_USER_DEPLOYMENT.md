@@ -4,6 +4,8 @@
 
 **For a single-user educational tool, NO BACKEND is needed.** The current client-side architecture is optimal for your use case.
 
+**📖 For API key setup instructions, see [API_KEY_GUIDE.md](API_KEY_GUIDE.md)**
+
 ---
 
 ## Why No Backend Needed for Single User

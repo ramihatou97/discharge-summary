@@ -2,7 +2,16 @@
 
 ## Overview
 
-This discharge summary application now implements a **hybrid architecture** that combines deterministic extraction methods with Large Language Model (LLM) capabilities for optimal accuracy and reliability.
+This discharge summary application implements a **hybrid architecture** that combines deterministic extraction methods with Large Language Model (LLM) capabilities for optimal accuracy and reliability.
+
+**LLMs are integrated at EVERY level that requires:**
+- 📖 **Reading** clinical notes and medical documentation
+- 🧠 **Deep understanding** of medical context, symptoms, and conditions
+- 🔍 **Analyzing** complications, consultant recommendations, and clinical progression
+- ⚙️ **Synthesizing** comprehensive clinical narratives from fragmented notes
+- 📝 **Summarizing** patient hospital course and discharge information
+
+**📖 For API key setup instructions, see [API_KEY_GUIDE.md](API_KEY_GUIDE.md)**
 
 ## Architecture Philosophy
 
@@ -257,6 +266,8 @@ function MyComponent() {
 
 ### API Key Management
 
+**📖 For complete API key setup instructions, see [API_KEY_GUIDE.md](API_KEY_GUIDE.md)**
+
 API keys can be configured in three ways:
 
 1. **localStorage** (recommended for browser apps):
@@ -283,6 +294,8 @@ export ANTHROPIC_API_KEY=your-key
 export OPENAI_API_KEY=your-key
 export GEMINI_API_KEY=your-key
 ```
+
+**For GitHub Pages deployment:** Users enter API keys in the browser application UI (Settings → API Keys). Keys are stored in browser localStorage and never committed to the repository.
 
 ### Model Configuration
 
